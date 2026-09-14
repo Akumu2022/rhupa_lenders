@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { apiRequest, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
@@ -18,6 +18,7 @@ function CreateCompanyDrawer({ open, onClose }: { open: boolean; onClose: () => 
   const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [createdCode, setCreatedCode] = useState<string | null>(null);
+  const closeTimerRef = useRef<number | null>(null);
 
   const {
     register,
@@ -26,6 +27,21 @@ function CreateCompanyDrawer({ open, onClose }: { open: boolean; onClose: () => 
     reset,
     formState: { errors, isSubmitting },
   } = useForm<CompanyCreateInput>({ resolver: zodResolver(companyCreateSchema) });
+
+  // Clear any pending auto-close timer if the drawer unmounts first (e.g.
+  // the admin navigates away right after creating a company).
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    },
+    [],
+  );
+
+  function closeDrawer() {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+    setCreatedCode(null);
+    onClose();
+  }
 
   async function onSubmit(values: CompanyCreateInput) {
     setError(null);
@@ -38,20 +54,19 @@ function CreateCompanyDrawer({ open, onClose }: { open: boolean; onClose: () => 
       reset();
       void queryClient.invalidateQueries({ queryKey: ["platform", "companies"] });
       toast(`${company.name} created.`, "success");
+      // Auto-close after a moment — long enough to read the signup code
+      // banner below, short enough that the drawer doesn't just sit there
+      // needing a manual close. The code and every other detail remain
+      // visible afterward in the companies table (§18: nothing shown once
+      // and lost).
+      closeTimerRef.current = window.setTimeout(closeDrawer, 2000);
     } catch (err) {
       setError(getErrorMessage(err));
     }
   }
 
   return (
-    <Drawer
-      open={open}
-      onClose={() => {
-        setCreatedCode(null);
-        onClose();
-      }}
-      title="Create a company"
-    >
+    <Drawer open={open} onClose={closeDrawer} title="Create a company">
       <form className="space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
         <Field label="Company name" error={errors.name?.message}>
           <TextInput {...register("name")} />
