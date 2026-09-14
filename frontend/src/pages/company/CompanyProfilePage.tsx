@@ -6,6 +6,7 @@ import { apiRequest, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
 import { Banner, Button, Card, Field, PageHeader, SectionLabel, TextInput } from "../../components/ui";
 import { ColorField } from "../../components/ColorField";
+import { ImageFileField } from "../../components/FileDropzone";
 import { safeHex } from "../../branding";
 import { useToast } from "../../components/toast";
 import {
@@ -79,9 +80,13 @@ export function CompanyProfilePage() {
             <Field label="Tagline" error={errors.tagline?.message}>
               <TextInput placeholder="A short motto shown under your name" {...register("tagline")} />
             </Field>
-            <Field label="Logo URL" error={errors.logo_url?.message}>
-              <TextInput placeholder="https://…" {...register("logo_url")} />
-            </Field>
+            <Controller
+              control={control}
+              name="logo_url"
+              render={({ field }) => (
+                <ImageFileField label="Logo" value={field.value} onChange={field.onChange} />
+              )}
+            />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Controller
                 control={control}

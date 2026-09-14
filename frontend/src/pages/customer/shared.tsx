@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { apiRequestMultipart, buildMultipartForm, getErrorMessage } from "../../api/client";
+import { FileDropzone } from "../../components/FileDropzone";
 import { Banner, Button, Card, Field, TextInput } from "../../components/ui";
 import { profileSubmitSchema, type ProfileSubmitInput } from "../../schemas/profile";
 import type { LoanApplicationResponse } from "../../schemas/loan";
@@ -94,30 +95,27 @@ export function KycSubmitForm({
         <Field label="Occupation" error={errors.occupation?.message}>
           <TextInput {...register("occupation")} />
         </Field>
-        <Field label="ID document — front (jpg, png, or pdf)">
-          <input
-            type="file"
-            accept=".jpg,.jpeg,.png,.pdf"
-            onChange={(e) => setIdFrontFile(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-slate-600 dark:text-slate-400"
-          />
-        </Field>
-        <Field label="ID document — back (jpg, png, or pdf)">
-          <input
-            type="file"
-            accept=".jpg,.jpeg,.png,.pdf"
-            onChange={(e) => setIdBackFile(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-slate-600 dark:text-slate-400"
-          />
-        </Field>
-        <Field label="Selfie / passport photo (optional)">
-          <input
-            type="file"
-            accept=".jpg,.jpeg,.png"
-            onChange={(e) => setSelfieFile(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-slate-600 dark:text-slate-400"
-          />
-        </Field>
+        <FileDropzone
+          label="ID document — front"
+          accept=".jpg,.jpeg,.png,.pdf"
+          file={idFrontFile}
+          onChange={setIdFrontFile}
+          hint="JPG, PNG, or PDF"
+        />
+        <FileDropzone
+          label="ID document — back"
+          accept=".jpg,.jpeg,.png,.pdf"
+          file={idBackFile}
+          onChange={setIdBackFile}
+          hint="JPG, PNG, or PDF"
+        />
+        <FileDropzone
+          label="Selfie / passport photo (optional)"
+          accept=".jpg,.jpeg,.png"
+          file={selfieFile}
+          onChange={setSelfieFile}
+          hint="JPG or PNG"
+        />
         {serverError ? <Banner kind="error">{serverError}</Banner> : null}
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Submitting…" : "Submit for verification"}

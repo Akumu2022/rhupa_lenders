@@ -6,6 +6,7 @@ import { apiRequest, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
 import { Badge, Banner, Button, Card, Field, PageHeader, SectionLabel, TextInput } from "../../components/ui";
 import { ColorField } from "../../components/ColorField";
+import { ImageFileField } from "../../components/FileDropzone";
 import { DataTable } from "../../components/DataTable";
 import { Drawer } from "../../components/Drawer";
 import { useToast } from "../../components/toast";
@@ -81,9 +82,13 @@ function CreateCompanyDrawer({ open, onClose }: { open: boolean; onClose: () => 
         <Field label="Address" error={errors.address?.message}>
           <TextInput {...register("address")} />
         </Field>
-        <Field label="Logo URL" error={errors.logo_url?.message}>
-          <TextInput placeholder="https://…" {...register("logo_url")} />
-        </Field>
+        <Controller
+          control={control}
+          name="logo_url"
+          render={({ field }) => (
+            <ImageFileField label="Logo" value={field.value} onChange={field.onChange} />
+          )}
+        />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Controller
             control={control}

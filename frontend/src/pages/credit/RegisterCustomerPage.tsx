@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
 import { apiRequestMultipart, buildMultipartForm, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
+import { FileDropzone } from "../../components/FileDropzone";
 import { Banner, Button, Card, Field, PageHeader, Select, SectionLabel, TextInput } from "../../components/ui";
 import { customerRegisterSchema, type CustomerRegisterInput, type CustomerResponse } from "../../schemas/customers";
 
@@ -165,30 +166,27 @@ export function RegisterCustomerPage() {
           <div>
             <SectionLabel>Documents</SectionLabel>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="ID document — front (jpg, png, or pdf)">
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.pdf"
-                  onChange={(e) => setIdFrontFile(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm text-slate-600 dark:text-slate-400"
-                />
-              </Field>
-              <Field label="ID document — back (jpg, png, or pdf)">
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.pdf"
-                  onChange={(e) => setIdBackFile(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm text-slate-600 dark:text-slate-400"
-                />
-              </Field>
-              <Field label="Customer photo (optional)">
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png"
-                  onChange={(e) => setSelfieFile(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm text-slate-600 dark:text-slate-400"
-                />
-              </Field>
+              <FileDropzone
+                label="ID document — front"
+                accept=".jpg,.jpeg,.png,.pdf"
+                file={idFrontFile}
+                onChange={setIdFrontFile}
+                hint="JPG, PNG, or PDF"
+              />
+              <FileDropzone
+                label="ID document — back"
+                accept=".jpg,.jpeg,.png,.pdf"
+                file={idBackFile}
+                onChange={setIdBackFile}
+                hint="JPG, PNG, or PDF"
+              />
+              <FileDropzone
+                label="Customer photo (optional)"
+                accept=".jpg,.jpeg,.png"
+                file={selfieFile}
+                onChange={setSelfieFile}
+                hint="JPG or PNG"
+              />
             </div>
           </div>
 
