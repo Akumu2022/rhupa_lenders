@@ -47,20 +47,20 @@ def upgrade() -> None:
         batch_op.create_foreign_key('fk_user_branch_id', 'branch', ['branch_id'], ['id'])
     op.create_index(op.f('ix_user_branch_id'), 'user', ['branch_id'], unique=False)
 
-    # CLAUDE.md §3: company_admin -> system_administrator; compliance_officer
-    # retired (credit_officer absorbs KYC). Remap existing rows so dev.db (and
-    # any already-deployed data) isn't left with orphaned role strings.
-    op.execute("UPDATE \"user\" SET role = 'system_administrator' WHERE role = 'company_admin'")
-    op.execute("UPDATE \"user\" SET role = 'credit_officer' WHERE role = 'compliance_officer'")
-
     # Postgres: 'userrole' is a native enum type there, so the new members
     # need an explicit ALTER TYPE (outside the migration's transaction — same
-    # pattern as the 'transactiontype' change in 2d1666fa956e). SQLite has no
-    # native enum — the column is a plain VARCHAR with no CHECK constraint, so
-    # there is nothing to do beyond the data UPDATE above. The retired
-    # 'company_admin'/'compliance_officer' values are left in the Postgres
-    # enum type (unused, harmless) since they can't be dropped without
-    # recreating the type — same precedent as that migration's downgrade note.
+    # pattern as the 'transactiontype' change in 2d1666fa956e) — and it MUST
+    # run before the data UPDATE below: Postgres validates a string literal
+    # against the enum's current members at parse time, regardless of
+    # whether any row matches the WHERE clause, so
+    # `UPDATE ... SET role = 'system_administrator'` fails with DataError
+    # ("invalid input value for enum userrole") on a fresh, even empty,
+    # database until the type actually has that member. SQLite has no native
+    # enum — the column is a plain VARCHAR with no CHECK constraint, so there
+    # is nothing to do here. The retired 'company_admin'/'compliance_officer'
+    # values are left in the Postgres enum type (unused, harmless) since they
+    # can't be dropped without recreating the type — same precedent as that
+    # migration's downgrade note.
     bind = op.get_bind()
     if bind.dialect.name == 'postgresql':
         with op.get_context().autocommit_block():
@@ -72,6 +72,12 @@ def upgrade() -> None:
                 'management',
             ):
                 op.execute(f"ALTER TYPE userrole ADD VALUE IF NOT EXISTS '{new_role}'")
+
+    # CLAUDE.md §3: company_admin -> system_administrator; compliance_officer
+    # retired (credit_officer absorbs KYC). Remap existing rows so dev.db (and
+    # any already-deployed data) isn't left with orphaned role strings.
+    op.execute("UPDATE \"user\" SET role = 'system_administrator' WHERE role = 'company_admin'")
+    op.execute("UPDATE \"user\" SET role = 'credit_officer' WHERE role = 'compliance_officer'")
 
 
 def downgrade() -> None:
