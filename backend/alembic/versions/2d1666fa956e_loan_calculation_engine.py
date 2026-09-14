@@ -22,44 +22,68 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """Upgrade schema.
+
+    Every `add_column` below is guarded by an existence check — see the
+    identical note in a4c8f1e6b930's upgrade(): `autocommit_block()` (used
+    below for the Postgres ALTER TYPE) force-commits everything earlier in
+    this function the moment it's entered, even though Alembic hasn't
+    recorded this migration as applied yet. If the process is interrupted
+    anywhere after that commit (e.g. a deploy superseded mid-migration by
+    the next push), a retry re-runs this whole upgrade() against a database
+    that already has some of these columns, and a plain `add_column` fails
+    with "column already exists" — this is exactly what happened on Render.
+    """
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    loanproduct_columns = {c['name'] for c in inspector.get_columns('loanproduct')}
+    loan_columns = {c['name'] for c in inspector.get_columns('loan')}
+
     # Every existing product becomes an explicit 'flat' product with the DEV
     # placeholder penalty config (CLAUDE.md §23) — behaviorally identical to
     # today (flat, single installment, no accrual yet since nothing is overdue
     # until the next due-date scan finds it).
     with op.batch_alter_table('loanproduct') as batch_op:
-        batch_op.add_column(
-            sa.Column('interest_model', sqlmodel.sql.sqltypes.AutoString(), nullable=False, server_default='flat')
-        )
-        batch_op.add_column(sa.Column('installment_count', sa.Integer(), nullable=False, server_default='1'))
-        batch_op.add_column(
-            sa.Column(
-                'penalty_type',
-                sqlmodel.sql.sqltypes.AutoString(),
-                nullable=False,
-                server_default='percentage_per_day',
+        if 'interest_model' not in loanproduct_columns:
+            batch_op.add_column(
+                sa.Column('interest_model', sqlmodel.sql.sqltypes.AutoString(), nullable=False, server_default='flat')
             )
-        )
-        batch_op.add_column(
-            sa.Column('penalty_rate', sa.Numeric(precision=5, scale=2), nullable=False, server_default='1.00')
-        )
-        batch_op.add_column(sa.Column('grace_period_days', sa.Integer(), nullable=False, server_default='3'))
-        batch_op.add_column(
-            sa.Column('penalty_cap_ratio', sa.Numeric(precision=5, scale=2), nullable=False, server_default='1.00')
-        )
+        if 'installment_count' not in loanproduct_columns:
+            batch_op.add_column(sa.Column('installment_count', sa.Integer(), nullable=False, server_default='1'))
+        if 'penalty_type' not in loanproduct_columns:
+            batch_op.add_column(
+                sa.Column(
+                    'penalty_type',
+                    sqlmodel.sql.sqltypes.AutoString(),
+                    nullable=False,
+                    server_default='percentage_per_day',
+                )
+            )
+        if 'penalty_rate' not in loanproduct_columns:
+            batch_op.add_column(
+                sa.Column('penalty_rate', sa.Numeric(precision=5, scale=2), nullable=False, server_default='1.00')
+            )
+        if 'grace_period_days' not in loanproduct_columns:
+            batch_op.add_column(sa.Column('grace_period_days', sa.Integer(), nullable=False, server_default='3'))
+        if 'penalty_cap_ratio' not in loanproduct_columns:
+            batch_op.add_column(
+                sa.Column('penalty_cap_ratio', sa.Numeric(precision=5, scale=2), nullable=False, server_default='1.00')
+            )
 
     with op.batch_alter_table('loan') as batch_op:
-        batch_op.add_column(
-            sa.Column('penalties_accrued', sa.Numeric(precision=12, scale=2), nullable=False, server_default='0')
-        )
-        batch_op.add_column(sa.Column('last_penalty_check_date', sa.Date(), nullable=True))
+        if 'penalties_accrued' not in loan_columns:
+            batch_op.add_column(
+                sa.Column('penalties_accrued', sa.Numeric(precision=12, scale=2), nullable=False, server_default='0')
+            )
+        if 'last_penalty_check_date' not in loan_columns:
+            batch_op.add_column(sa.Column('last_penalty_check_date', sa.Date(), nullable=True))
 
     # Postgres: the 'transactiontype' column is a native enum type there, so a
     # new member needs an explicit ALTER TYPE (outside the migration's
     # transaction — Postgres cannot add an enum value and use it in the same
     # transaction on older versions). SQLite has no native enum — the column
     # is a plain VARCHAR with no CHECK constraint, so there is nothing to do.
-    bind = op.get_bind()
+    # ADD VALUE ... IF NOT EXISTS is itself idempotent.
     if bind.dialect.name == 'postgresql':
         with op.get_context().autocommit_block():
             op.execute("ALTER TYPE transactiontype ADD VALUE IF NOT EXISTS 'penalty'")
