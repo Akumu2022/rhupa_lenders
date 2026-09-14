@@ -1,5 +1,52 @@
 import { z } from "zod";
 
+// Fixed choice lists for the customer registration form's categorical
+// fields — the backend stores each as a plain string (app/models/profile.py
+// has no DB-level enum for these), so this is a frontend-only constraint:
+// present a closed set instead of free text, rather than a data-model
+// change. Values are the exact strings sent to and stored by the backend.
+export const GENDER_OPTIONS = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+] as const;
+
+export const NATIONALITY_OPTIONS = [
+  { value: "Kenya", label: "Kenya" },
+  { value: "Uganda", label: "Uganda" },
+  { value: "Tanzania", label: "Tanzania" },
+] as const;
+
+export const MARITAL_STATUS_OPTIONS = [
+  { value: "married", label: "Married" },
+  { value: "single", label: "Single" },
+  { value: "divorced", label: "Divorced" },
+] as const;
+
+export const NEXT_OF_KIN_RELATIONSHIP_OPTIONS = [
+  { value: "father", label: "Father" },
+  { value: "mother", label: "Mother" },
+  { value: "brother", label: "Brother" },
+  { value: "sister", label: "Sister" },
+  { value: "spouse", label: "Spouse" },
+  { value: "child", label: "Child" },
+] as const;
+
+export const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: "employed", label: "Employed" },
+  { value: "unemployed", label: "Unemployed" },
+  { value: "self_employed", label: "Self Employed" },
+] as const;
+
+const MIN_CUSTOMER_AGE_YEARS = 18;
+
+function isAtLeastYearsOld(dateString: string, years: number): boolean {
+  const dob = new Date(dateString);
+  if (Number.isNaN(dob.getTime())) return false;
+  const today = new Date();
+  const cutoff = new Date(today.getFullYear() - years, today.getMonth(), today.getDate());
+  return dob <= cutoff;
+}
+
 // Mirrors backend app/schemas/customers.py
 export const customerRegisterSchema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -11,22 +58,29 @@ export const customerRegisterSchema = z.object({
   last_name: z.string().min(1, "Required"),
   id_type: z.enum(["national_id", "passport"]),
   national_id_number: z.string().min(1, "Required"),
-  date_of_birth: z.string().min(1, "Required"),
-  gender: z.string().min(1, "Required"),
-  nationality: z.string().min(1, "Required"),
-  marital_status: z.string().min(1, "Required"),
+  date_of_birth: z
+    .string()
+    .min(1, "Required")
+    .refine((v) => isAtLeastYearsOld(v, MIN_CUSTOMER_AGE_YEARS), {
+      message: "Customer must be at least 18 years old",
+    }),
+  gender: z.enum(["male", "female"], { message: "Required" }),
+  nationality: z.enum(["Kenya", "Uganda", "Tanzania"], { message: "Required" }),
+  marital_status: z.enum(["married", "single", "divorced"], { message: "Required" }),
   dependants_count: z.string().min(1, "Required"),
 
   phone_number: z.string().min(1, "Required"),
   phone_number_alt: z.string().optional(),
   residential_address: z.string().min(1, "Required"),
 
-  employment_status: z.string().min(1, "Required"),
+  employment_status: z.enum(["employed", "unemployed", "self_employed"], { message: "Required" }),
   occupation: z.string().min(1, "Required"),
   monthly_income: z.string().min(1, "Required"),
 
   next_of_kin_name: z.string().min(1, "Required"),
-  next_of_kin_relationship: z.string().min(1, "Required"),
+  next_of_kin_relationship: z.enum(["father", "mother", "brother", "sister", "spouse", "child"], {
+    message: "Required",
+  }),
   next_of_kin_phone: z.string().min(1, "Required"),
 });
 export type CustomerRegisterInput = z.infer<typeof customerRegisterSchema>;

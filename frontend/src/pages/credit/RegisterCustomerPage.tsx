@@ -6,7 +6,25 @@ import { apiRequestMultipart, buildMultipartForm, getErrorMessage } from "../../
 import { AppShell } from "../../components/AppShell";
 import { FileDropzone } from "../../components/FileDropzone";
 import { Banner, Button, Card, Field, PageHeader, Select, SectionLabel, TextInput } from "../../components/ui";
-import { customerRegisterSchema, type CustomerRegisterInput, type CustomerResponse } from "../../schemas/customers";
+import {
+  customerRegisterSchema,
+  EMPLOYMENT_STATUS_OPTIONS,
+  GENDER_OPTIONS,
+  MARITAL_STATUS_OPTIONS,
+  NATIONALITY_OPTIONS,
+  NEXT_OF_KIN_RELATIONSHIP_OPTIONS,
+  type CustomerRegisterInput,
+  type CustomerResponse,
+} from "../../schemas/customers";
+
+// A customer must be at least 18 — same rule the Zod schema enforces —
+// expressed here as the <input type="date"> max attribute so the native
+// date picker itself won't offer a disqualifying date.
+function maxDateOfBirth(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 18);
+  return d.toISOString().slice(0, 10);
+}
 
 /**
  * CLAUDE.md §27 (M11): the credit officer's in-branch "New Customer" intake
@@ -98,16 +116,43 @@ export function RegisterCustomerPage() {
                 <TextInput {...register("national_id_number")} />
               </Field>
               <Field label="Date of birth" error={errors.date_of_birth?.message}>
-                <TextInput type="date" {...register("date_of_birth")} />
+                <TextInput type="date" max={maxDateOfBirth()} {...register("date_of_birth")} />
               </Field>
               <Field label="Gender" error={errors.gender?.message}>
-                <TextInput {...register("gender")} />
+                <Select defaultValue="" {...register("gender")}>
+                  <option value="" disabled>
+                    Select…
+                  </option>
+                  {GENDER_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               <Field label="Nationality" error={errors.nationality?.message}>
-                <TextInput {...register("nationality")} />
+                <Select defaultValue="" {...register("nationality")}>
+                  <option value="" disabled>
+                    Select…
+                  </option>
+                  {NATIONALITY_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               <Field label="Marital status" error={errors.marital_status?.message}>
-                <TextInput {...register("marital_status")} />
+                <Select defaultValue="" {...register("marital_status")}>
+                  <option value="" disabled>
+                    Select…
+                  </option>
+                  {MARITAL_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               <Field label="Number of dependants" error={errors.dependants_count?.message}>
                 <TextInput type="number" min="0" step="1" {...register("dependants_count")} />
@@ -137,7 +182,16 @@ export function RegisterCustomerPage() {
                 <TextInput {...register("next_of_kin_name")} />
               </Field>
               <Field label="Relationship" error={errors.next_of_kin_relationship?.message}>
-                <TextInput {...register("next_of_kin_relationship")} />
+                <Select defaultValue="" {...register("next_of_kin_relationship")}>
+                  <option value="" disabled>
+                    Select…
+                  </option>
+                  {NEXT_OF_KIN_RELATIONSHIP_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               <Field label="Phone number" error={errors.next_of_kin_phone?.message}>
                 <TextInput {...register("next_of_kin_phone")} />
@@ -152,7 +206,16 @@ export function RegisterCustomerPage() {
             <SectionLabel>Employment</SectionLabel>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Employment status" error={errors.employment_status?.message}>
-                <TextInput {...register("employment_status")} />
+                <Select defaultValue="" {...register("employment_status")}>
+                  <option value="" disabled>
+                    Select…
+                  </option>
+                  {EMPLOYMENT_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               <Field label="Occupation" error={errors.occupation?.message}>
                 <TextInput {...register("occupation")} />
