@@ -1,0 +1,128 @@
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { apiRequestMultipart, buildMultipartForm, getErrorMessage } from "../../api/client";
+import { Banner, Button, Card, Field, TextInput } from "../../components/ui";
+import { profileSubmitSchema, type ProfileSubmitInput } from "../../schemas/profile";
+import type { LoanApplicationResponse } from "../../schemas/loan";
+
+export function applicationStatusTone(status: LoanApplicationResponse["status"]): "success" | "danger" | "warning" {
+  if (status === "approved") return "success";
+  if (status === "rejected") return "danger";
+  return "warning";
+}
+
+export function loanStatusTone(status: string): "success" | "info" | "warning" | "danger" {
+  if (status === "repaid") return "success";
+  if (status === "active") return "info";
+  if (status === "overdue") return "warning";
+  if (status === "defaulted") return "danger";
+  return "warning"; // approved (awaiting disbursement)
+}
+
+export function KycSubmitForm({
+  onSubmitted,
+  rejectionReason,
+}: {
+  onSubmitted: () => void;
+  rejectionReason?: string | null;
+}) {
+  const [idFrontFile, setIdFrontFile] = useState<File | null>(null);
+  const [idBackFile, setIdBackFile] = useState<File | null>(null);
+  const [selfieFile, setSelfieFile] = useState<File | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<ProfileSubmitInput>({ resolver: zodResolver(profileSubmitSchema) });
+
+  async function onSubmit(values: ProfileSubmitInput) {
+    setServerError(null);
+    if (!idFrontFile) {
+      setServerError("Please attach the front of your ID document");
+      return;
+    }
+    if (!idBackFile) {
+      setServerError("Please attach the back of your ID document");
+      return;
+    }
+    const formData = buildMultipartForm(values, {
+      id_document: idFrontFile,
+      id_document_back: idBackFile,
+      selfie_photo: selfieFile,
+    });
+
+    try {
+      await apiRequestMultipart("/profile", formData);
+      onSubmitted();
+    } catch (err) {
+      setServerError(getErrorMessage(err));
+    }
+  }
+
+  return (
+    <Card>
+      {rejectionReason ? (
+        <div className="mb-4">
+          <Banner kind="error">
+            Your previous submission was rejected: "{rejectionReason}". Please correct the details below and
+            resubmit.
+          </Banner>
+        </div>
+      ) : null}
+      <form className="space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
+        <Field label="Date of birth" error={errors.date_of_birth?.message}>
+          <TextInput type="date" {...register("date_of_birth")} />
+        </Field>
+        <Field label="National ID number" error={errors.national_id_number?.message}>
+          <TextInput {...register("national_id_number")} />
+        </Field>
+        <Field label="Phone number" error={errors.phone_number?.message}>
+          <TextInput {...register("phone_number")} />
+        </Field>
+        <Field label="Residential address" error={errors.residential_address?.message}>
+          <TextInput {...register("residential_address")} />
+        </Field>
+        <Field label="Employment status" error={errors.employment_status?.message}>
+          <TextInput {...register("employment_status")} />
+        </Field>
+        <Field label="Monthly income (KES)" error={errors.monthly_income?.message}>
+          <TextInput type="number" step="0.01" min="0" {...register("monthly_income")} />
+        </Field>
+        <Field label="Occupation" error={errors.occupation?.message}>
+          <TextInput {...register("occupation")} />
+        </Field>
+        <Field label="ID document — front (jpg, png, or pdf)">
+          <input
+            type="file"
+            accept=".jpg,.jpeg,.png,.pdf"
+            onChange={(e) => setIdFrontFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-slate-600 dark:text-slate-400"
+          />
+        </Field>
+        <Field label="ID document — back (jpg, png, or pdf)">
+          <input
+            type="file"
+            accept=".jpg,.jpeg,.png,.pdf"
+            onChange={(e) => setIdBackFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-slate-600 dark:text-slate-400"
+          />
+        </Field>
+        <Field label="Selfie / passport photo (optional)">
+          <input
+            type="file"
+            accept=".jpg,.jpeg,.png"
+            onChange={(e) => setSelfieFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-slate-600 dark:text-slate-400"
+          />
+        </Field>
+        {serverError ? <Banner kind="error">{serverError}</Banner> : null}
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Submitting…" : "Submit for verification"}
+        </Button>
+      </form>
+    </Card>
+  );
+}

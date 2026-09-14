@@ -1,0 +1,13 @@
+# CLAUDE.md §2 repo shape: keep secrets, uploaded KYC documents, lockfiles,
+# and build artifacts out of assistant context.
+**/.env
+backend/storage/
+backend/dev.db
+backend/*.db
+backend/.venv/
+backend/.pytest_cache/
+**/__pycache__/
+frontend/node_modules/
+frontend/dist/
+frontend/package-lock.json
+backend/uv.lock
