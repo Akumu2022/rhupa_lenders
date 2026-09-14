@@ -6,6 +6,10 @@ loans, products, and the read-only portfolio aggregate. All company-scoped
 import io
 from decimal import Decimal
 
+from sqlmodel import Session, select
+
+from app.models import Loan, User
+from app.tenancy import tenant_context
 from tests.conftest import create_branch, seed_super_admin
 
 
@@ -50,24 +54,51 @@ def _setup_disbursed_loan(client, engine, *, company_name="Company A", platform_
         headers=_auth_headers(admin_token),
     )
     compliance_token = _login(client, f"compliance@{slug}.example.com", "compliance-pass-1")
+    # Kept as one credit_officer (not two, as before M13) — fewer logins
+    # keeps this file's two-company tests under the /auth/login rate limit.
+    credit_token = compliance_token
+
     client.post(
         "/staff",
         json={
-            "email": f"credit@{slug}.example.com",
-            "password": "credit-pass-123",
-            "full_name": "Credit One",
-            "role": "credit_officer",
+            "email": f"manager@{slug}.example.com",
+            "password": "manager-pass-123",
+            "full_name": "Manager One",
+            "role": "branch_manager",
             "branch_id": branch["id"],
         },
         headers=_auth_headers(admin_token),
     )
-    credit_token = _login(client, f"credit@{slug}.example.com", "credit-pass-123")
+    manager_token = _login(client, f"manager@{slug}.example.com", "manager-pass-123")
+
+    client.post(
+        "/staff",
+        json={
+            "email": f"finance@{slug}.example.com",
+            "password": "finance-pass-123",
+            "full_name": "Finance One",
+            "role": "cashier_finance_officer",
+        },
+        headers=_auth_headers(admin_token),
+    )
+    finance_token = _login(client, f"finance@{slug}.example.com", "finance-pass-123")
 
     signup_resp = client.post(
         "/signup",
         json={"signup_code": company["signup_code"], "email": f"customer@{slug}.example.com", "password": "customer-pass-1", "full_name": "Customer One"},
     )
     customer_token = signup_resp.json()["access_token"]
+
+    # CLAUDE.md §7: self-signup never sets branch_id — patched directly here
+    # so this application routes to branch review, same shortcut as
+    # tests/test_credit.py (this suite is about admin oversight, not
+    # registration mechanics).
+    with Session(engine) as session:
+        with tenant_context(company["id"]):
+            customer = session.exec(select(User).where(User.email == f"customer@{slug}.example.com")).first()
+            customer.branch_id = branch["id"]
+            session.add(customer)
+            session.commit()
 
     client.post(
         "/profile",
@@ -98,18 +129,22 @@ def _setup_disbursed_loan(client, engine, *, company_name="Company A", platform_
         headers=_auth_headers(customer_token),
     ).json()
     approval = client.post(
-        f"/credit/applications/{application['id']}/approve",
-        json={"notes": "Approved"},
-        headers=_auth_headers(credit_token),
+        f"/branch-manager/applications/{application['id']}/decide",
+        json={"decision": "approve", "comments": "Approved"},
+        headers=_auth_headers(manager_token),
     ).json()
-    loan_id = approval["loan"]["id"]
-    client.post(f"/credit/loans/{loan_id}/disburse", headers=_auth_headers(credit_token))
+    with Session(engine) as session:
+        with tenant_context(company["id"]):
+            loan_id = session.exec(select(Loan).where(Loan.application_id == application["id"])).first().id
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(finance_token))
 
     return {
         "platform_token": platform_token,
         "admin_token": admin_token,
         "compliance_token": compliance_token,
         "credit_token": credit_token,
+        "manager_token": manager_token,
+        "finance_token": finance_token,
         "customer_token": customer_token,
         "company": company,
         "loan_id": loan_id,
@@ -234,7 +269,10 @@ def test_portfolio_summary_reflects_disbursed_and_active_loan(client, engine):
     assert body["total_disbursed"] == "5000.00"
     assert body["active_loans"] == 1
     assert body["active_borrowers"] == 1
-    assert Decimal(body["outstanding_principal"]) == Decimal("5250.00")
+    # CLAUDE.md §29: outstanding_principal is PRINCIPAL only (not the
+    # interest-inclusive total_repayable/outstanding_balance) — nothing's
+    # been repaid yet, so it equals the full principal, 5000.00, not 5250.00.
+    assert Decimal(body["outstanding_principal"]) == Decimal("5000.00")
     assert body["par_percentage"] == "0.00"
 
 

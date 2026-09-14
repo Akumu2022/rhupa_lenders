@@ -9,11 +9,15 @@ from .limiter import limiter
 from .routers import (
     admin,
     auth,
+    branch_manager,
+    committee,
     company_info,
     compliance,
     credit,
     customers,
+    finance,
     loans,
+    management,
     platform,
     profile,
     signup,
@@ -45,6 +49,10 @@ app.include_router(customers.router)
 app.include_router(loans.router)
 app.include_router(credit.router)
 app.include_router(transactions.router)
+app.include_router(branch_manager.router)
+app.include_router(committee.router)
+app.include_router(finance.router)
+app.include_router(management.router)
 
 
 @app.get("/health")

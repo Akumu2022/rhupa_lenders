@@ -29,7 +29,7 @@ def test_amortization_breakdown_sums_to_amount_due(client, engine):
     """CLAUDE.md §19 borrower transparency: principal + interest == amount due."""
     ctx = _setup_approved_loan(client, engine, amount="5000.00")
     loan_id = ctx["loan"]["id"]
-    client.post(f"/credit/loans/{loan_id}/disburse", headers=_auth_headers(ctx["credit_token"]))
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
 
     loans_me = client.get("/loans/me", headers=_auth_headers(ctx["customer_token"])).json()
     installment = loans_me["loans"][0]["schedule"][0]
@@ -43,7 +43,7 @@ def test_amortization_breakdown_sums_to_amount_due(client, engine):
 def test_loan_becomes_overdue_after_due_date_passes(client, engine):
     ctx = _setup_approved_loan(client, engine)
     loan_id = ctx["loan"]["id"]
-    client.post(f"/credit/loans/{loan_id}/disburse", headers=_auth_headers(ctx["credit_token"]))
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
     _backdate_schedule(engine, ctx["company"]["id"], loan_id)
 
     loans_me = client.get("/loans/me", headers=_auth_headers(ctx["customer_token"])).json()
@@ -61,14 +61,14 @@ def test_loan_becomes_overdue_after_due_date_passes(client, engine):
 def test_collections_queue_lists_overdue_loans_and_is_tenant_scoped(client, engine):
     ctx_a = _setup_approved_loan(client, engine, company_name="Company A")
     loan_a = ctx_a["loan"]["id"]
-    client.post(f"/credit/loans/{loan_a}/disburse", headers=_auth_headers(ctx_a["credit_token"]))
+    client.post(f"/finance/loans/{loan_a}/disburse", headers=_auth_headers(ctx_a["finance_token"]))
     _backdate_schedule(engine, ctx_a["company"]["id"], loan_a, days_ago=3)
 
     ctx_b = _setup_approved_loan(
         client, engine, company_name="Company B", platform_token=ctx_a["platform_token"]
     )
     loan_b = ctx_b["loan"]["id"]
-    client.post(f"/credit/loans/{loan_b}/disburse", headers=_auth_headers(ctx_b["credit_token"]))
+    client.post(f"/finance/loans/{loan_b}/disburse", headers=_auth_headers(ctx_b["finance_token"]))
     # Company B's loan is disbursed but not yet overdue.
 
     queue_a = client.get("/credit/loans/collections", headers=_auth_headers(ctx_a["credit_token"])).json()
@@ -85,7 +85,7 @@ def test_collections_queue_lists_overdue_loans_and_is_tenant_scoped(client, engi
 def test_mark_loan_defaulted_requires_overdue_status(client, engine):
     ctx = _setup_approved_loan(client, engine)
     loan_id = ctx["loan"]["id"]
-    client.post(f"/credit/loans/{loan_id}/disburse", headers=_auth_headers(ctx["credit_token"]))
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
 
     # Not overdue yet — defaulting should be rejected.
     resp = client.post(
@@ -117,7 +117,7 @@ def test_mark_loan_defaulted_requires_overdue_status(client, engine):
 def test_mark_loan_defaulted_requires_a_reason(client, engine):
     ctx = _setup_approved_loan(client, engine)
     loan_id = ctx["loan"]["id"]
-    client.post(f"/credit/loans/{loan_id}/disburse", headers=_auth_headers(ctx["credit_token"]))
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
     _backdate_schedule(engine, ctx["company"]["id"], loan_id)
     client.get("/credit/loans/collections", headers=_auth_headers(ctx["credit_token"]))
 
@@ -134,7 +134,7 @@ def test_repayment_allowed_on_overdue_and_defaulted_loans(client, engine):
     never trap a borrower who's trying to catch up."""
     ctx = _setup_approved_loan(client, engine)
     loan_id = ctx["loan"]["id"]
-    client.post(f"/credit/loans/{loan_id}/disburse", headers=_auth_headers(ctx["credit_token"]))
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
     _backdate_schedule(engine, ctx["company"]["id"], loan_id)
     client.get("/credit/loans/collections", headers=_auth_headers(ctx["credit_token"]))
     client.post(
@@ -158,7 +158,7 @@ def test_repayment_allowed_on_overdue_and_defaulted_loans(client, engine):
 def test_admin_portfolio_summary_reports_overdue_and_defaulted_counts(client, engine):
     ctx = _setup_approved_loan(client, engine)
     loan_id = ctx["loan"]["id"]
-    client.post(f"/credit/loans/{loan_id}/disburse", headers=_auth_headers(ctx["credit_token"]))
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
     _backdate_schedule(engine, ctx["company"]["id"], loan_id)
 
     summary = client.get("/admin/portfolio/summary", headers=_auth_headers(ctx["admin_token"])).json()

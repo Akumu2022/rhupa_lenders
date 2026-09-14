@@ -147,7 +147,10 @@ def test_verified_customer_can_apply_within_range(client, engine):
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["status"] == "pending"
+    # CLAUDE.md §26 (M13): self-signup never sets branch_id, so this
+    # customer's application skips branch review (no branch manager to
+    # route it to) and lands straight in committee review.
+    assert body["status"] == "pending_committee_review"
     assert body["amount_requested"] == "5000.00"
 
 

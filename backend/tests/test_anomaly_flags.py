@@ -8,17 +8,17 @@ from sqlmodel import Session, select
 
 from app.models import AuditLog
 from app.tenancy import tenant_context
-from tests.test_credit import _auth_headers, _setup_company_with_pending_application
+from tests.test_credit import _auth_headers, _setup_company_with_branch_review_application
 
 
 def test_fast_approval_flagged_as_anomaly(client, engine):
-    ctx = _setup_company_with_pending_application(client, engine)
+    ctx = _setup_company_with_branch_review_application(client, engine)
     application_id = ctx["application"]["id"]
 
     resp = client.post(
-        f"/credit/applications/{application_id}/approve",
-        json={"notes": "Looks fine"},
-        headers=_auth_headers(ctx["credit_token"]),
+        f"/branch-manager/applications/{application_id}/decide",
+        json={"decision": "approve", "comments": "Looks fine"},
+        headers=_auth_headers(ctx["manager_token"]),
     )
     assert resp.status_code == 200, resp.text
 
@@ -34,16 +34,16 @@ def test_fast_approval_flagged_as_anomaly(client, engine):
 
 
 def test_rapid_application_submission_flagged_as_anomaly(client, engine):
-    ctx = _setup_company_with_pending_application(client, engine)  # application #1
+    ctx = _setup_company_with_branch_review_application(client, engine)  # application #1
     product_id = ctx["loan_product"]["id"]
     customer_headers = _auth_headers(ctx["customer_token"])
-    credit_headers = _auth_headers(ctx["credit_token"])
+    manager_headers = _auth_headers(ctx["manager_token"])
 
     def reject(application_id):
         resp = client.post(
-            f"/credit/applications/{application_id}/reject",
-            json={"notes": "Insufficient income"},
-            headers=credit_headers,
+            f"/branch-manager/applications/{application_id}/decide",
+            json={"decision": "reject", "comments": "Insufficient income"},
+            headers=manager_headers,
         )
         assert resp.status_code == 200, resp.text
 

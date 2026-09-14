@@ -11,15 +11,20 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models import (
+    ApplicationReviewStage,
     Branch,
     BusinessAssessment,
     Company,
+    ExpenseCategory,
+    ExpenseEntry,
     Loan,
     LoanApplication,
     LoanProduct,
     Profile,
     Referee,
     RepaymentSchedule,
+    ReviewDecision,
+    ReviewStage,
     Transaction,
     TransactionType,
     User,
@@ -266,6 +271,48 @@ def seeded(engine):
                     customer_id=user_b1.id,
                     type=TransactionType.disbursement,
                     amount=Decimal("20000.00"),
+                )
+            )
+            session.commit()
+
+            session.add(
+                ApplicationReviewStage(
+                    company_id=company_a_id,
+                    application_id=application_a.id,
+                    stage=ReviewStage.branch_review,
+                    actor_id=user_a1.id,
+                    decision=ReviewDecision.approve,
+                    comments="A approved",
+                )
+            )
+            session.add(
+                ApplicationReviewStage(
+                    company_id=company_b_id,
+                    application_id=application_b.id,
+                    stage=ReviewStage.branch_review,
+                    actor_id=user_b1.id,
+                    decision=ReviewDecision.approve,
+                    comments="B approved",
+                )
+            )
+            session.commit()
+
+            session.add(
+                ExpenseEntry(
+                    company_id=company_a_id,
+                    category=ExpenseCategory.rent,
+                    amount=Decimal("5000.00"),
+                    description="A rent",
+                    created_by=user_a1.id,
+                )
+            )
+            session.add(
+                ExpenseEntry(
+                    company_id=company_b_id,
+                    category=ExpenseCategory.rent,
+                    amount=Decimal("7000.00"),
+                    description="B rent",
+                    created_by=user_b1.id,
                 )
             )
             session.commit()
@@ -529,3 +576,63 @@ def test_business_assessment_unscoped_query_fails_closed(seeded):
     with Session(seeded["engine"]) as session:
         with pytest.raises(TenantScopeNotSetError):
             session.exec(select(BusinessAssessment)).all()
+
+
+def test_application_review_stage_scoped_query_returns_only_own_company_rows(seeded):
+    """CLAUDE.md §5/§26 rule #12: ApplicationReviewStage was added in M13 —
+    the append-only per-stage decision trail behind the multi-stage
+    approval chain."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            stages = session.exec(select(ApplicationReviewStage)).all()
+
+    assert len(stages) == 1
+    assert stages[0].comments == "A approved"
+    assert stages[0].company_id == seeded["company_a_id"]
+
+
+def test_application_review_stage_scoped_query_cannot_reach_another_companys_row(seeded):
+    """A leak here would expose another company's loan decision trail —
+    who approved what and why — the same catastrophic scenario CLAUDE.md §5
+    calls out by name."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            leaked = session.exec(
+                select(ApplicationReviewStage).where(ApplicationReviewStage.comments == "B approved")
+            ).first()
+
+    assert leaked is None
+
+
+def test_application_review_stage_unscoped_query_fails_closed(seeded):
+    with Session(seeded["engine"]) as session:
+        with pytest.raises(TenantScopeNotSetError):
+            session.exec(select(ApplicationReviewStage)).all()
+
+
+def test_expense_entry_scoped_query_returns_only_own_company_rows(seeded):
+    """CLAUDE.md §5/§30 rule #12: ExpenseEntry was added in M17 — the
+    cashier/finance officer's expense ledger."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            expenses = session.exec(select(ExpenseEntry)).all()
+
+    assert len(expenses) == 1
+    assert expenses[0].description == "A rent"
+    assert expenses[0].company_id == seeded["company_a_id"]
+
+
+def test_expense_entry_scoped_query_cannot_reach_another_companys_row(seeded):
+    """A leak here would expose another company's financial ledger data —
+    the same catastrophic scenario CLAUDE.md §5 calls out by name."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            leaked = session.exec(select(ExpenseEntry).where(ExpenseEntry.description == "B rent")).first()
+
+    assert leaked is None
+
+
+def test_expense_entry_unscoped_query_fails_closed(seeded):
+    with Session(seeded["engine"]) as session:
+        with pytest.raises(TenantScopeNotSetError):
+            session.exec(select(ExpenseEntry)).all()

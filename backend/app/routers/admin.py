@@ -3,12 +3,11 @@ audit log" is the first piece; applications/KYC/loans/products/portfolio
 oversight land here too as they ship.
 """
 
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, case, func, update
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -17,6 +16,7 @@ from ..db import get_session
 from ..db_helpers import get_or_404
 from ..deps import require_role
 from ..loan_delinquency import sync_loan_delinquency
+from ..portfolio import compute_portfolio_summary, compute_portfolio_trend
 from ..models import (
     ApplicationStatus,
     AuditAction,
@@ -59,7 +59,6 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # heavy audit volume would need it, but the DataTable component paginates
 # client-side and this caps the payload in the meantime.
 _AUDIT_LOG_LIMIT = 500
-_TREND_DAYS = 14
 
 
 @router.get("/audit-log", response_model=list[AuditLogResponse])
@@ -104,6 +103,7 @@ def create_branch(
         code=body.code,
         address=body.address,
         manager_id=body.manager_id,
+        delegated_limit=body.delegated_limit,
         company_id=admin.company_id,
     )
     session.add(branch)
@@ -272,76 +272,22 @@ def get_portfolio_summary(
 ) -> PortfolioSummaryResponse:
     """CLAUDE.md §9: aggregates only, no individual customer PII — a
     read-only rollup a future executive role can be pointed at unchanged.
-
-    Pure counts are computed in SQL (no Decimal involved, safe to
-    aggregate server-side). Money sums are deliberately still summed in
-    Python over a narrow column-only projection (not full ORM entities) —
-    NOT via SQL SUM(). This project stores money as Numeric(12,2), and
-    SQLite has no true DECIMAL type: SUM() over a Numeric-affinity column
-    executes inside SQLite's own floating-point engine, so precision can
-    already be lost before the result ever reaches Python, regardless of
-    how the returned value is cast on the way out. CLAUDE.md rule #13
-    ("never float... anywhere an amount is... computed") rules that out —
-    this is the one place the "obvious" SQL-aggregate optimization would
-    silently reintroduce the exact bug that rule exists to prevent. The
-    column-only projection still avoids hydrating full Loan ORM objects for
-    every row, which is the actual cost being cut here.
+    Computation lives in app/portfolio.py (shared with the branch-scoped and
+    management-level equivalents, CLAUDE.md §29/§30) — this endpoint's own
+    URL/response shape is unchanged.
     """
-    sync_loan_delinquency(session)
-
-    outstanding_statuses = (LoanStatus.active, LoanStatus.overdue, LoanStatus.defaulted)
-    today = date.today()
-    month_start_dt = datetime.combine(today.replace(day=1), datetime.min.time(), tzinfo=timezone.utc)
-
-    active_loans, overdue_loan_count, defaulted_loan_count, loans_disbursed_this_month = session.exec(
-        select(
-            func.count(case((Loan.status.in_(outstanding_statuses), 1), else_=None)),
-            func.count(case((Loan.status == LoanStatus.overdue, 1), else_=None)),
-            func.count(case((Loan.status == LoanStatus.defaulted, 1), else_=None)),
-            func.count(
-                case((and_(Loan.disbursed_at.is_not(None), Loan.disbursed_at >= month_start_dt), 1), else_=None)
-            ),
-        )
-    ).one()
-
-    rows = session.exec(
-        select(Loan.status, Loan.principal, Loan.outstanding_balance, Loan.total_repayable, Loan.customer_id)
-    ).all()
-
-    total_disbursed = sum((r.principal for r in rows if r.status != LoanStatus.approved), Decimal("0.00"))
-    # CLAUDE.md §19: overdue/defaulted are still outstanding, unrepaid debt.
-    outstanding_rows = [r for r in rows if r.status in outstanding_statuses]
-    outstanding_principal = sum((r.outstanding_balance for r in outstanding_rows), Decimal("0.00"))
-    total_collected = sum(
-        (
-            r.total_repayable - r.outstanding_balance
-            for r in rows
-            if r.status in (*outstanding_statuses, LoanStatus.repaid)
-        ),
-        Decimal("0.00"),
-    )
-    active_borrowers = len({r.customer_id for r in outstanding_rows})
-    at_risk_outstanding = sum(
-        (r.outstanding_balance for r in outstanding_rows if r.status in (LoanStatus.overdue, LoanStatus.defaulted)),
-        Decimal("0.00"),
-    )
-    par_percentage = (
-        (at_risk_outstanding / outstanding_principal * Decimal("100")).quantize(Decimal("0.01"))
-        if outstanding_principal > 0
-        else Decimal("0.00")
-    )
-
+    summary = compute_portfolio_summary(session)
     return PortfolioSummaryResponse(
-        total_disbursed=total_disbursed,
-        total_collected=total_collected,
-        active_borrowers=active_borrowers,
-        active_loans=active_loans,
-        outstanding_principal=outstanding_principal,
-        par_percentage=par_percentage,
-        overdue_loans=overdue_loan_count,
-        defaulted_loans=defaulted_loan_count,
-        loans_disbursed_this_month=loans_disbursed_this_month,
-        as_of=today,
+        total_disbursed=summary.total_disbursed,
+        total_collected=summary.total_collected,
+        active_borrowers=summary.active_borrowers,
+        active_loans=summary.active_loans,
+        outstanding_principal=summary.outstanding_principal,
+        par_percentage=summary.par_percentage,
+        overdue_loans=summary.overdue_loans,
+        defaulted_loans=summary.defaulted_loans,
+        loans_disbursed_this_month=summary.loans_disbursed_this_month,
+        as_of=summary.as_of,
     )
 
 
@@ -353,29 +299,13 @@ def get_portfolio_trend(
     """CLAUDE.md §20: sparkline data for the dashboard's hero stat — daily
     disbursement activity over the trailing window, computed from existing
     Loan rows (no new table, no stored history to maintain)."""
-    today = date.today()
-    window_start = today - timedelta(days=_TREND_DAYS - 1)
-    window_start_dt = datetime.combine(window_start, datetime.min.time(), tzinfo=timezone.utc)
-
-    loans = session.exec(
-        select(Loan).where(Loan.disbursed_at.is_not(None), Loan.disbursed_at >= window_start_dt)
-    ).all()
-
-    by_day: dict[date, list[Loan]] = {window_start + timedelta(days=i): [] for i in range(_TREND_DAYS)}
-    for loan in loans:
-        day = loan.disbursed_at.date()
-        if day in by_day:
-            by_day[day].append(loan)
-
-    points = [
-        PortfolioTrendPoint(
-            date=day,
-            disbursed_count=len(day_loans),
-            disbursed_amount=sum((l.principal for l in day_loans), Decimal("0.00")),
-        )
-        for day, day_loans in sorted(by_day.items())
-    ]
-    return PortfolioTrendResponse(points=points)
+    points = compute_portfolio_trend(session)
+    return PortfolioTrendResponse(
+        points=[
+            PortfolioTrendPoint(date=p.date, disbursed_count=p.disbursed_count, disbursed_amount=p.disbursed_amount)
+            for p in points
+        ]
+    )
 
 
 def _admin_previously_overrode_kyc_for_customer(session: Session, admin_id: int, customer_user_id: int) -> bool:

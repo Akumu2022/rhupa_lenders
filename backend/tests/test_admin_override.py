@@ -6,6 +6,10 @@ applicant.
 
 import io
 
+from sqlmodel import Session, select
+
+from app.models import User
+from app.tenancy import tenant_context
 from tests.conftest import create_branch, seed_super_admin
 
 
@@ -50,30 +54,36 @@ def _setup_company(client, engine, *, company_name="Company A", platform_token=N
         headers=_auth_headers(admin_token),
     )
     compliance_token = _login(client, f"compliance@{slug}.example.com", "compliance-pass-1")
-    client.post(
+    # One credit_officer (not two, as before M13) — fewer logins.
+    credit_token = compliance_token
+
+    manager_resp = client.post(
         "/staff",
         json={
-            "email": f"credit@{slug}.example.com",
-            "password": "credit-pass-123",
-            "full_name": "Credit One",
-            "role": "credit_officer",
+            "email": f"manager@{slug}.example.com",
+            "password": "manager-pass-123",
+            "full_name": "Manager One",
+            "role": "branch_manager",
             "branch_id": branch["id"],
         },
         headers=_auth_headers(admin_token),
     )
-    credit_token = _login(client, f"credit@{slug}.example.com", "credit-pass-123")
+    assert manager_resp.status_code == 201, manager_resp.text
+    manager_token = _login(client, f"manager@{slug}.example.com", "manager-pass-123")
 
     return {
         "platform_token": platform_token,
         "admin_token": admin_token,
         "compliance_token": compliance_token,
         "credit_token": credit_token,
+        "manager_token": manager_token,
         "company": company,
+        "branch": branch,
         "slug": slug,
     }
 
 
-def _signup_and_submit_profile(client, ctx, *, email_slug="customer1", national_id="NATID-1"):
+def _signup_and_submit_profile(client, ctx, engine, *, email_slug="customer1", national_id="NATID-1"):
     signup_resp = client.post(
         "/signup",
         json={
@@ -85,6 +95,18 @@ def _signup_and_submit_profile(client, ctx, *, email_slug="customer1", national_
     )
     assert signup_resp.status_code == 201, signup_resp.text
     customer_token = signup_resp.json()["access_token"]
+
+    # CLAUDE.md §7: self-signup never sets branch_id — patched directly here
+    # so applications route to branch review (this suite is about override
+    # behavior, not registration mechanics).
+    with Session(engine) as session:
+        with tenant_context(ctx["company"]["id"]):
+            customer = session.exec(
+                select(User).where(User.email == f"{email_slug}@{ctx['slug']}.example.com")
+            ).first()
+            customer.branch_id = ctx["branch"]["id"]
+            session.add(customer)
+            session.commit()
 
     client.post(
         "/profile",
@@ -108,7 +130,7 @@ def _signup_and_submit_profile(client, ctx, *, email_slug="customer1", national_
 
 def test_kyc_override_revokes_a_verification(client, engine):
     ctx = _setup_company(client, engine)
-    customer_token = _signup_and_submit_profile(client, ctx)
+    customer_token = _signup_and_submit_profile(client, ctx, engine)
 
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
@@ -134,7 +156,7 @@ def test_kyc_override_revokes_a_verification(client, engine):
 
 def test_kyc_override_cannot_act_on_pending_profile(client, engine):
     ctx = _setup_company(client, engine)
-    _signup_and_submit_profile(client, ctx)
+    _signup_and_submit_profile(client, ctx, engine)
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
 
@@ -148,7 +170,7 @@ def test_kyc_override_cannot_act_on_pending_profile(client, engine):
 
 def test_kyc_override_requires_reason(client, engine):
     ctx = _setup_company(client, engine)
-    _signup_and_submit_profile(client, ctx)
+    _signup_and_submit_profile(client, ctx, engine)
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
     client.post(f"/compliance/profiles/{profile_id}/verify", json={"notes": None}, headers=_auth_headers(ctx["compliance_token"]))
@@ -163,7 +185,7 @@ def test_kyc_override_requires_reason(client, engine):
 
 def test_application_override_reactivates_rejected_application_and_creates_loan(client, engine):
     ctx = _setup_company(client, engine)
-    customer_token = _signup_and_submit_profile(client, ctx)
+    customer_token = _signup_and_submit_profile(client, ctx, engine)
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
     client.post(f"/compliance/profiles/{profile_id}/verify", json={"notes": None}, headers=_auth_headers(ctx["compliance_token"]))
@@ -176,9 +198,9 @@ def test_application_override_reactivates_rejected_application_and_creates_loan(
         headers=_auth_headers(customer_token),
     ).json()
     client.post(
-        f"/credit/applications/{application['id']}/reject",
-        json={"notes": "Insufficient documentation"},
-        headers=_auth_headers(ctx["credit_token"]),
+        f"/branch-manager/applications/{application['id']}/decide",
+        json={"decision": "reject", "comments": "Insufficient documentation"},
+        headers=_auth_headers(ctx["manager_token"]),
     )
 
     resp = client.post(
@@ -204,7 +226,7 @@ def test_application_override_reactivates_rejected_application_and_creates_loan(
 
 def test_application_override_only_works_on_rejected_applications(client, engine):
     ctx = _setup_company(client, engine)
-    customer_token = _signup_and_submit_profile(client, ctx)
+    customer_token = _signup_and_submit_profile(client, ctx, engine)
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
     client.post(f"/compliance/profiles/{profile_id}/verify", json={"notes": None}, headers=_auth_headers(ctx["compliance_token"]))
@@ -228,7 +250,7 @@ def test_application_override_only_works_on_rejected_applications(client, engine
 
 def test_double_override_is_a_conflict(client, engine):
     ctx = _setup_company(client, engine)
-    _signup_and_submit_profile(client, ctx)
+    _signup_and_submit_profile(client, ctx, engine)
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
     client.post(f"/compliance/profiles/{profile_id}/verify", json={"notes": None}, headers=_auth_headers(ctx["compliance_token"]))
@@ -252,7 +274,7 @@ def test_double_override_is_a_conflict(client, engine):
 
 def test_non_admin_cannot_override(client, engine):
     ctx = _setup_company(client, engine)
-    _signup_and_submit_profile(client, ctx)
+    _signup_and_submit_profile(client, ctx, engine)
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
     client.post(f"/compliance/profiles/{profile_id}/verify", json={"notes": None}, headers=_auth_headers(ctx["compliance_token"]))
@@ -269,7 +291,7 @@ def test_anomaly_guard_flags_same_admin_overriding_both_kyc_and_application_for_
     """CLAUDE.md §8 anomaly guard: the one-person-does-everything scenario
     separation of duties is meant to prevent."""
     ctx = _setup_company(client, engine)
-    customer_token = _signup_and_submit_profile(client, ctx)
+    customer_token = _signup_and_submit_profile(client, ctx, engine)
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_id = queue[0]["id"]
     client.post(f"/compliance/profiles/{profile_id}/verify", json={"notes": None}, headers=_auth_headers(ctx["compliance_token"]))
@@ -282,9 +304,9 @@ def test_anomaly_guard_flags_same_admin_overriding_both_kyc_and_application_for_
         headers=_auth_headers(customer_token),
     ).json()
     client.post(
-        f"/credit/applications/{application['id']}/reject",
-        json={"notes": "Insufficient documentation"},
-        headers=_auth_headers(ctx["credit_token"]),
+        f"/branch-manager/applications/{application['id']}/decide",
+        json={"decision": "reject", "comments": "Insufficient documentation"},
+        headers=_auth_headers(ctx["manager_token"]),
     )
 
     # First override: KYC (verified -> rejected) by the admin.
@@ -314,8 +336,8 @@ def test_anomaly_guard_flags_same_admin_overriding_both_kyc_and_application_for_
 
 def test_anomaly_guard_does_not_flag_different_customers(client, engine):
     ctx = _setup_company(client, engine)
-    customer_a_token = _signup_and_submit_profile(client, ctx, email_slug="customerA", national_id="NATID-A")
-    customer_b_token = _signup_and_submit_profile(client, ctx, email_slug="customerB", national_id="NATID-B")
+    customer_a_token = _signup_and_submit_profile(client, ctx, engine, email_slug="customerA", national_id="NATID-A")
+    customer_b_token = _signup_and_submit_profile(client, ctx, engine, email_slug="customerB", national_id="NATID-B")
 
     queue = client.get("/compliance/queue", headers=_auth_headers(ctx["compliance_token"])).json()
     profile_a_id = next(p["id"] for p in queue if p["national_id_number"] == "NATID-A")
@@ -331,9 +353,9 @@ def test_anomaly_guard_does_not_flag_different_customers(client, engine):
         headers=_auth_headers(customer_b_token),
     ).json()
     client.post(
-        f"/credit/applications/{application_b['id']}/reject",
-        json={"notes": "Insufficient documentation"},
-        headers=_auth_headers(ctx["credit_token"]),
+        f"/branch-manager/applications/{application_b['id']}/decide",
+        json={"decision": "reject", "comments": "Insufficient documentation"},
+        headers=_auth_headers(ctx["manager_token"]),
     )
 
     # Override KYC for customer A...
@@ -358,7 +380,7 @@ def test_anomaly_guard_does_not_flag_different_customers(client, engine):
 def test_override_is_tenant_isolated(client, engine):
     ctx_a = _setup_company(client, engine, company_name="Company A")
     ctx_b = _setup_company(client, engine, company_name="Company B", platform_token=ctx_a["platform_token"])
-    _signup_and_submit_profile(client, ctx_b)
+    _signup_and_submit_profile(client, ctx_b, engine)
     queue_b = client.get("/compliance/queue", headers=_auth_headers(ctx_b["compliance_token"])).json()
     profile_b_id = queue_b[0]["id"]
     client.post(f"/compliance/profiles/{profile_b_id}/verify", json={"notes": None}, headers=_auth_headers(ctx_b["compliance_token"]))

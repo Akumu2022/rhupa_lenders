@@ -53,6 +53,14 @@ _OUTSTANDING_LOAN_STATUSES = {LoanStatus.approved, LoanStatus.active, LoanStatus
 # into delinquency — don't trap a borrower who's trying to catch up.
 _REPAYABLE_LOAN_STATUSES = {LoanStatus.active, LoanStatus.overdue, LoanStatus.defaulted}
 
+# CLAUDE.md §26 (M13): the two "still being decided" statuses — a customer
+# may not submit a second application while one is anywhere in this chain.
+_IN_REVIEW_APPLICATION_STATUSES = {
+    ApplicationStatus.pending,
+    ApplicationStatus.pending_branch_review,
+    ApplicationStatus.pending_committee_review,
+}
+
 router = APIRouter(tags=["loans"])
 
 
@@ -81,7 +89,7 @@ def submit_application(
     existing_pending = session.exec(
         select(LoanApplication).where(
             LoanApplication.customer_id == customer.id,
-            LoanApplication.status == ApplicationStatus.pending,
+            LoanApplication.status.in_(_IN_REVIEW_APPLICATION_STATUSES),
         )
     ).first()
     if existing_pending is not None:
@@ -108,12 +116,23 @@ def submit_application(
     ).all()
     recent_count = sum(1 for a in prior_applications if as_utc(a.created_at) >= past_day)
 
+    # CLAUDE.md §26: branch_id resolved server-side from the applicant's own
+    # branch, never from the request body. A customer with no branch (a
+    # self-signup with nothing to inherit from) skips branch review
+    # entirely — there's no branch manager to route them to — and goes
+    # straight to committee review.
+    initial_status = (
+        ApplicationStatus.pending_branch_review
+        if customer.branch_id is not None
+        else ApplicationStatus.pending_committee_review
+    )
     application = LoanApplication(
         customer_id=customer.id,
         loan_product_id=product.id,
         amount_requested=body.amount_requested,
         company_id=customer.company_id,  # from the authenticated customer, never the body
-        status=ApplicationStatus.pending,
+        branch_id=customer.branch_id,
+        status=initial_status,
     )
     session.add(application)
     session.flush()

@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from sqlmodel import Session, select
 
-from app.models import RepaymentSchedule
+from app.models import RepaymentSchedule, User
 from app.tenancy import tenant_context
 from tests.conftest import create_branch, seed_super_admin
 
@@ -94,6 +94,20 @@ def _setup_verified_customer(client, engine, *, company_name="Company A", platfo
     assert credit_resp.status_code == 201, credit_resp.text
     credit_token = _login(client, f"credit@{slug}.example.com", "credit-pass-123")
 
+    manager_resp = client.post(
+        "/staff",
+        json={
+            "email": f"manager@{slug}.example.com",
+            "password": "manager-pass-123",
+            "full_name": "Manager One",
+            "role": "branch_manager",
+            "branch_id": branch["id"],
+        },
+        headers=_auth_headers(admin_token),
+    )
+    assert manager_resp.status_code == 201, manager_resp.text
+    manager_token = _login(client, f"manager@{slug}.example.com", "manager-pass-123")
+
     signup_resp = client.post(
         "/signup",
         json={
@@ -105,6 +119,16 @@ def _setup_verified_customer(client, engine, *, company_name="Company A", platfo
     )
     assert signup_resp.status_code == 201, signup_resp.text
     customer_token = signup_resp.json()["access_token"]
+
+    # CLAUDE.md §7: self-signup never sets branch_id — patched directly here
+    # so applications route to branch review (this suite is about the
+    # dashboard, not registration mechanics).
+    with Session(engine) as session:
+        with tenant_context(company["id"]):
+            customer = session.exec(select(User).where(User.email == f"{email_slug}@{slug}.example.com")).first()
+            customer.branch_id = branch["id"]
+            session.add(customer)
+            session.commit()
 
     _submit_profile(client, customer_token, national_id=f"NATID-{email_slug}")
     queue = client.get("/compliance/queue", headers=_auth_headers(compliance_token)).json()
@@ -121,6 +145,7 @@ def _setup_verified_customer(client, engine, *, company_name="Company A", platfo
         "admin_token": admin_token,
         "compliance_token": compliance_token,
         "credit_token": credit_token,
+        "manager_token": manager_token,
         "customer_token": customer_token,
         "company": company,
     }
@@ -135,9 +160,9 @@ def _apply_and_approve(client, ctx, *, amount="5000.00"):
         headers=_auth_headers(ctx["customer_token"]),
     ).json()
     approval = client.post(
-        f"/credit/applications/{application['id']}/approve",
-        json={"notes": "Approved"},
-        headers=_auth_headers(ctx["credit_token"]),
+        f"/branch-manager/applications/{application['id']}/decide",
+        json={"decision": "approve", "comments": "Approved"},
+        headers=_auth_headers(ctx["manager_token"]),
     )
     assert approval.status_code == 200, approval.text
     return approval.json()
@@ -178,7 +203,9 @@ def test_loans_me_after_approval_lists_loan_with_schedule_and_reduces_available_
     # 200000.00 limit - 5250.00 outstanding on the new loan.
     assert body["available_credit"] == "194750.00"
     assert body["standing"] == "good_standing"
-    assert approval["loan"]["id"] == loan["id"]
+    # branch-manager decide returns the application view (loan_status), not
+    # a nested loan object.
+    assert approval["loan_status"] == "approved"
 
 
 def test_standing_flips_to_attention_needed_when_installment_is_overdue(client, engine):

@@ -67,6 +67,8 @@ class AdminLoanProductResponse(BaseModel):
     penalty_rate: Decimal
     grace_period_days: int
     penalty_cap_ratio: Decimal
+    # CLAUDE.md §26 (M13)
+    branch_manager_delegated_limit: Decimal
 
 
 class LoanProductUpdateRequest(BaseModel):
@@ -86,6 +88,7 @@ class LoanProductUpdateRequest(BaseModel):
     penalty_rate: Optional[Decimal] = Field(default=None, ge=0)
     grace_period_days: Optional[int] = Field(default=None, ge=0)
     penalty_cap_ratio: Optional[Decimal] = Field(default=None, ge=0)
+    branch_manager_delegated_limit: Optional[Decimal] = Field(default=None, ge=0)
 
 
 class BranchCreateRequest(BaseModel):
@@ -93,6 +96,9 @@ class BranchCreateRequest(BaseModel):
     code: str = Field(min_length=1)
     address: Optional[str] = None
     manager_id: Optional[int] = None
+    # CLAUDE.md §26: optional override of the product default — a larger or
+    # smaller/newer branch may be trusted with a different delegated limit.
+    delegated_limit: Optional[Decimal] = Field(default=None, ge=0)
 
 
 class BranchUpdateRequest(BaseModel):
@@ -100,6 +106,7 @@ class BranchUpdateRequest(BaseModel):
     address: Optional[str] = None
     manager_id: Optional[int] = None
     is_active: Optional[bool] = None
+    delegated_limit: Optional[Decimal] = Field(default=None, ge=0)
 
 
 class BranchResponse(BaseModel):
@@ -111,6 +118,7 @@ class BranchResponse(BaseModel):
     address: Optional[str]
     manager_id: Optional[int]
     is_active: bool
+    delegated_limit: Optional[Decimal]
     created_at: datetime
 
 

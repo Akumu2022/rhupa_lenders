@@ -62,3 +62,11 @@ class LoanProduct(TenantMixin, table=True):
     # confirm the current CBK DCP cap before production. Expressed as a ratio
     # of principal (1.00 = 100%).
     penalty_cap_ratio: Decimal = Field(default=Decimal("1.00"), max_digits=5, decimal_places=2)
+
+    # CLAUDE.md §26 (M13): a branch manager may decide an application on this
+    # product directly, without committee review, only up to this amount.
+    # DEV PLACEHOLDER — Finance/ops must revise before production, same
+    # caveat as the penalty config above; lives as config, not code.
+    branch_manager_delegated_limit: Decimal = Field(
+        default=Decimal("100000.00"), max_digits=12, decimal_places=2
+    )
