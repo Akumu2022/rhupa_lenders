@@ -7,7 +7,7 @@ export interface CreditApplicationResponse {
   customer_email: string;
   loan_product_name: string;
   amount_requested: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "pending_branch_review" | "pending_committee_review" | "approved" | "rejected";
   review_notes: string | null;
   reviewed_at: string | null;
   created_at: string;
@@ -23,6 +23,10 @@ export function describeApplicationLifecycle(
   application: CreditApplicationResponse,
 ): { label: string; tone: "success" | "danger" | "warning" | "info" | "neutral" } {
   if (application.status === "pending") return { label: "Pending review", tone: "warning" };
+  if (application.status === "pending_branch_review") return { label: "Awaiting branch review", tone: "warning" };
+  if (application.status === "pending_committee_review") {
+    return { label: "Awaiting committee review", tone: "warning" };
+  }
   if (application.status === "rejected") return { label: "Declined", tone: "danger" };
 
   switch (application.loan_status) {

@@ -7,10 +7,38 @@ import { Banner, Button, Card, Field, TextInput } from "../../components/ui";
 import { profileSubmitSchema, type ProfileSubmitInput } from "../../schemas/profile";
 import type { LoanApplicationResponse } from "../../schemas/loan";
 
+// CLAUDE.md §26 (M13): a submitted application is "in review" under one of
+// three status values depending on how far it's gotten in the chain — all
+// three read as the same warm/pending color, just with different labels.
+const IN_REVIEW_STATUSES: LoanApplicationResponse["status"][] = [
+  "pending",
+  "pending_branch_review",
+  "pending_committee_review",
+];
+
+export function applicationHasPendingDecision(applications: LoanApplicationResponse[]): boolean {
+  return applications.some((a) => IN_REVIEW_STATUSES.includes(a.status));
+}
+
 export function applicationStatusTone(status: LoanApplicationResponse["status"]): "success" | "danger" | "warning" {
   if (status === "approved") return "success";
   if (status === "rejected") return "danger";
   return "warning";
+}
+
+export function applicationStatusLabel(status: LoanApplicationResponse["status"]): string {
+  switch (status) {
+    case "pending":
+      return "Pending review";
+    case "pending_branch_review":
+      return "Awaiting branch review";
+    case "pending_committee_review":
+      return "Awaiting committee review";
+    case "approved":
+      return "Approved";
+    case "rejected":
+      return "Rejected";
+  }
 }
 
 export function loanStatusTone(status: string): "success" | "info" | "warning" | "danger" {

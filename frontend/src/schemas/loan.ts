@@ -17,7 +17,7 @@ export interface LoanApplicationResponse {
   id: number;
   loan_product_id: number;
   amount_requested: string;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "pending_branch_review" | "pending_committee_review" | "approved" | "rejected";
   review_notes: string | null;
   reviewed_at: string | null;
   created_at: string;

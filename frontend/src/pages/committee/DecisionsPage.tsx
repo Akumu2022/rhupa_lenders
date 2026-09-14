@@ -5,29 +5,20 @@ import { Badge, Card, PageHeader } from "../../components/ui";
 import { DataTable } from "../../components/DataTable";
 import { describeApplicationLifecycle, type CreditApplicationResponse } from "../../schemas/credit";
 
-/** CLAUDE.md §8/§26 (M13): credit_officer prepares applications but no
- * longer decides them — this is now a read-only "what's still in review"
- * view of the officer's own branch, not an actionable queue. Deciding
- * happens at src/pages/branch-manager/ApplicationsPage.tsx (or the
- * committee's, once escalated). */
-export function CreditApplicationsPage() {
-  const queueQuery = useQuery({
-    queryKey: ["credit", "queue"],
-    queryFn: () => apiRequest<CreditApplicationResponse[]>("/credit/queue"),
+export function CommitteeDecisionsPage() {
+  const decisionsQuery = useQuery({
+    queryKey: ["committee", "decisions", "me"],
+    queryFn: () => apiRequest<CreditApplicationResponse[]>("/committee/decisions/me"),
   });
 
   return (
     <AppShell>
-      <PageHeader
-        title="Applications"
-        subtitle="Applications you've prepared, still awaiting a branch manager's or committee's decision"
-      />
+      <PageHeader title="My decisions" subtitle="Applications you've personally approved or rejected" />
 
       <Card>
         <DataTable
           columns={[
             { key: "customer", header: "Customer", sortable: true, accessor: (a: CreditApplicationResponse) => a.customer_full_name },
-            { key: "email", header: "Email", accessor: (a) => a.customer_email },
             { key: "product", header: "Product", accessor: (a) => a.loan_product_name },
             {
               key: "amount",
@@ -45,21 +36,20 @@ export function CreditApplicationsPage() {
                 return <Badge tone={tone}>{label}</Badge>;
               },
             },
+            { key: "notes", header: "Notes", accessor: (a) => a.review_notes ?? "" },
             {
-              key: "created_at",
-              header: "Submitted",
+              key: "reviewed_at",
+              header: "Decided",
               sortable: true,
-              accessor: (a) => a.created_at,
-              render: (a) => new Date(a.created_at).toLocaleString(),
+              accessor: (a) => a.reviewed_at ?? "",
+              render: (a) => (a.reviewed_at ? new Date(a.reviewed_at).toLocaleString() : "—"),
             },
           ]}
-          data={queueQuery.data}
+          data={decisionsQuery.data}
           getRowId={(a) => a.id}
-          isLoading={queueQuery.isLoading}
-          isError={queueQuery.isError}
-          searchKeys={["customer", "email"]}
-          searchPlaceholder="Search by customer or email…"
-          emptyMessage="Nothing awaiting review right now."
+          isLoading={decisionsQuery.isLoading}
+          isError={decisionsQuery.isError}
+          emptyMessage="You haven't made any decisions yet."
         />
       </Card>
     </AppShell>

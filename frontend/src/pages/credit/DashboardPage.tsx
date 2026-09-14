@@ -1,50 +1,22 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, getErrorMessage } from "../../api/client";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
-import { BarList, Badge, Button, Card, EmptyState, HeroStat, LinkTile, PageHeader, SectionLabel, StatCard } from "../../components/ui";
-import { DataTable } from "../../components/DataTable";
-import { useToast } from "../../components/toast";
+import { BarList, Badge, Card, EmptyState, HeroStat, LinkTile, PageHeader, SectionLabel, StatCard } from "../../components/ui";
 import {
   describeApplicationLifecycle,
   type CollectionsQueueItemResponse,
   type CreditApplicationResponse,
-  type DisbursementResponse,
-  type PendingDisbursementResponse,
 } from "../../schemas/credit";
 
-function DisburseButton({ loan }: { loan: PendingDisbursementResponse }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const disburse = useMutation({
-    mutationFn: () => apiRequest<DisbursementResponse>(`/credit/loans/${loan.id}/disburse`, { method: "POST" }),
-    onSuccess: () => {
-      // Disbursing changes this loan's status, which several other cached
-      // views derive from (recent decisions' lifecycle badge, collections,
-      // the system_administrator portfolio) — invalidate broadly so nothing keeps
-      // showing "awaiting disbursement" after it's actually been disbursed.
-      void queryClient.invalidateQueries({ queryKey: ["credit"] });
-      void queryClient.invalidateQueries({ queryKey: ["admin", "portfolio"] });
-      void queryClient.invalidateQueries({ queryKey: ["admin", "audit-log"] });
-      toast(`Disbursed KES ${loan.principal} to ${loan.customer_full_name}.`, "success");
-    },
-    onError: (err) => toast(getErrorMessage(err), "error"),
-  });
-
-  return (
-    <Button className="px-2 py-1 text-xs" disabled={disburse.isPending} onClick={() => disburse.mutate()}>
-      {disburse.isPending ? "Disbursing…" : "Disburse"}
-    </Button>
-  );
-}
-
+/** CLAUDE.md §8/§26 (M13): credit_officer prepares — decisions and
+ * disbursement now belong to branch_manager/committee and
+ * cashier_finance_officer respectively (src/pages/branch-manager/,
+ * src/pages/finance/). "Your recent decisions" only ever shows
+ * pre-M13 historical rows now, since this role no longer decides. */
 export function CreditDashboardPage() {
   const queueQuery = useQuery({
     queryKey: ["credit", "queue"],
     queryFn: () => apiRequest<CreditApplicationResponse[]>("/credit/queue"),
-  });
-  const pendingDisbursementQuery = useQuery({
-    queryKey: ["credit", "pending-disbursement"],
-    queryFn: () => apiRequest<PendingDisbursementResponse[]>("/credit/loans/pending-disbursement"),
   });
   const collectionsQuery = useQuery({
     queryKey: ["collections"],
@@ -59,92 +31,61 @@ export function CreditDashboardPage() {
 
   return (
     <AppShell>
-      <PageHeader title="Dashboard" subtitle="Approve applications and disburse approved loans" />
+      <PageHeader title="Dashboard" subtitle="Prepare customers and applications for your branch manager to decide" />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="lg:col-span-4">
-          <HeroStat label="Pending decisions" value={queueQuery.data?.length ?? "…"} tone="brand" subtext="Applications awaiting your review" />
+          <HeroStat
+            label="Awaiting a decision"
+            value={queueQuery.data?.length ?? "…"}
+            tone="brand"
+            subtext="Applications you've prepared, still in review"
+          />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:col-span-8">
-          <StatCard label="Ready to disburse" value={pendingDisbursementQuery.data?.length ?? "…"} tone="success" />
           <StatCard
             label="Overdue (collections)"
             value={collectionsQuery.data?.length ?? "…"}
             tone={collectionsQuery.data && collectionsQuery.data.length > 0 ? "danger" : "success"}
           />
+          <StatCard label="Your past decisions" value={decisionsQuery.data?.length ?? "…"} tone="neutral" />
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <LinkTile to="/credit/applications" icon="documentText" label="Applications" description="Approve or reject pending applications" />
+        <LinkTile to="/credit/applications" icon="documentText" label="Applications" description="What you've prepared, still in review" />
         <LinkTile to="/credit/collections" icon="archiveBox" label="Collections" description="Overdue loans awaiting follow-up" />
-        <LinkTile to="/credit/decisions" icon="checkCircle" label="My Decisions" description="Your own approval and rejection history" />
+        <LinkTile to="/credit/decisions" icon="checkCircle" label="My Decisions" description="Your historical approval and rejection record" />
       </div>
 
       <Card className="mt-4">
         <SectionLabel>Today's workload</SectionLabel>
         <BarList
           items={[
-            { label: "Pending review", value: queueQuery.data?.length ?? 0, tone: "warning" },
-            { label: "Ready to disburse", value: pendingDisbursementQuery.data?.length ?? 0, tone: "success" },
+            { label: "Awaiting a decision", value: queueQuery.data?.length ?? 0, tone: "warning" },
             { label: "Overdue collections", value: collectionsQuery.data?.length ?? 0, tone: "danger" },
           ]}
         />
       </Card>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-8">
-          <Card>
-            <SectionLabel>Ready to disburse</SectionLabel>
-            <DataTable
-              columns={[
-                { key: "customer", header: "Customer", accessor: (l: PendingDisbursementResponse) => l.customer_full_name },
-                { key: "product", header: "Product", accessor: (l) => l.loan_product_name },
-                {
-                  key: "principal",
-                  header: "Principal",
-                  sortable: true,
-                  accessor: (l) => Number(l.principal),
-                  render: (l) => `KES ${l.principal}`,
-                },
-                {
-                  key: "repayable",
-                  header: "Total repayable",
-                  accessor: (l) => Number(l.total_repayable),
-                  render: (l) => `KES ${l.total_repayable}`,
-                },
-              ]}
-              data={pendingDisbursementQuery.data}
-              getRowId={(l) => l.id}
-              isLoading={pendingDisbursementQuery.isLoading}
-              isError={pendingDisbursementQuery.isError}
-              emptyMessage="No approved loans waiting to be disbursed."
-              rowActions={(l) => <DisburseButton loan={l} />}
-            />
-          </Card>
-        </div>
-
-        <div className="lg:col-span-4">
-          <Card>
-            <SectionLabel>Your recent decisions</SectionLabel>
-            {recentDecisions.length === 0 ? (
-              <EmptyState>No decisions yet.</EmptyState>
-            ) : (
-              <ul className="space-y-3">
-                {recentDecisions.map((application) => {
-                  const { label, tone } = describeApplicationLifecycle(application);
-                  return (
-                    <li key={application.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="truncate text-slate-800 dark:text-slate-100">{application.customer_full_name}</span>
-                      <Badge tone={tone}>{label}</Badge>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Card>
-        </div>
-      </div>
+      <Card className="mt-4">
+        <SectionLabel>Recent history</SectionLabel>
+        {recentDecisions.length === 0 ? (
+          <EmptyState>No decisions on record.</EmptyState>
+        ) : (
+          <ul className="space-y-3">
+            {recentDecisions.map((application) => {
+              const { label, tone } = describeApplicationLifecycle(application);
+              return (
+                <li key={application.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate text-slate-800 dark:text-slate-100">{application.customer_full_name}</span>
+                  <Badge tone={tone}>{label}</Badge>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
     </AppShell>
   );
 }

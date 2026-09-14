@@ -7,7 +7,7 @@ import { Badge, Banner, Button, Card, Field, PageHeader, SectionLabel, Select, T
 import { DataTable } from "../../components/DataTable";
 import type { LoanApplicationResponse, LoanProductResponse } from "../../schemas/loan";
 import type { ProfileResponse } from "../../schemas/profile";
-import { applicationStatusTone } from "./shared";
+import { applicationHasPendingDecision, applicationStatusLabel, applicationStatusTone } from "./shared";
 
 export function CustomerApplyPage() {
   const queryClient = useQueryClient();
@@ -53,7 +53,7 @@ export function CustomerApplyPage() {
   });
 
   const productById = new Map((productsQuery.data ?? []).map((p) => [p.id, p]));
-  const hasPending = applicationsQuery.data?.some((a) => a.status === "pending") ?? false;
+  const hasPending = applicationsQuery.data ? applicationHasPendingDecision(applicationsQuery.data) : false;
 
   const selectedProduct = selectedProductId ? productById.get(selectedProductId) : undefined;
   const requestedAmount = Number(amount);
@@ -152,7 +152,7 @@ export function CustomerApplyPage() {
               accessor: (a) => a.status,
               render: (a) => (
                 <div>
-                  <Badge tone={applicationStatusTone(a.status)}>{a.status}</Badge>
+                  <Badge tone={applicationStatusTone(a.status)}>{applicationStatusLabel(a.status)}</Badge>
                   {a.status === "rejected" && a.review_notes ? (
                     <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">Reason: {a.review_notes}</p>
                   ) : null}

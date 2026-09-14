@@ -26,9 +26,21 @@ import { RegisterCustomerPage } from "./pages/credit/RegisterCustomerPage";
 import { CustomerListPage } from "./pages/credit/CustomerListPage";
 import { CustomerDetailPage } from "./pages/credit/CustomerDetailPage";
 import { BranchManagerDashboardPage } from "./pages/branch-manager/DashboardPage";
+import { BranchManagerApplicationsPage } from "./pages/branch-manager/ApplicationsPage";
+import { BranchManagerStaffPage } from "./pages/branch-manager/StaffPage";
+import { BranchManagerPortfolioPage } from "./pages/branch-manager/PortfolioPage";
+import { BranchManagerCollectionsPage } from "./pages/branch-manager/CollectionsPage";
 import { CommitteeDashboardPage } from "./pages/committee/DashboardPage";
+import { CommitteeQueuePage } from "./pages/committee/QueuePage";
+import { CommitteeDecisionsPage } from "./pages/committee/DecisionsPage";
 import { FinanceDashboardPage } from "./pages/finance/DashboardPage";
+import { FinanceDisbursementsPage } from "./pages/finance/DisbursementsPage";
+import { FinanceFinancialsPage } from "./pages/finance/FinancialsPage";
+import { FinanceReportsPage } from "./pages/finance/ReportsPage";
 import { ManagementDashboardPage } from "./pages/management/DashboardPage";
+import { ManagementReportsPage } from "./pages/management/ReportsPage";
+import { ManagementBranchRankingPage } from "./pages/management/BranchRankingPage";
+import { ManagementStaffPerformancePage } from "./pages/management/StaffPerformancePage";
 import { CustomerDashboardPage } from "./pages/customer/DashboardPage";
 import { CustomerLoansPage } from "./pages/customer/LoansPage";
 import { CustomerApplyPage } from "./pages/customer/ApplyPage";
@@ -84,23 +96,34 @@ function App() {
         <Route path="/credit/decisions" element={<CreditDecisionsPage />} />
       </Route>
 
-      {/* CLAUDE.md §14 M10: minimal placeholder dashboards — full builds land
-          in M15/M17/M18/M19 once their data endpoints exist (§18: "not built
-          = not faked"). */}
+      {/* CLAUDE.md §14 M13/M14/M17/M18: multi-stage approval chain,
+          disbursement handoff, and financial/management reporting. */}
       <Route element={<ProtectedRoute allowedRoles={["branch_manager"]} />}>
         <Route path="/branch-manager" element={<BranchManagerDashboardPage />} />
+        <Route path="/branch-manager/applications" element={<BranchManagerApplicationsPage />} />
+        <Route path="/branch-manager/staff" element={<BranchManagerStaffPage />} />
+        <Route path="/branch-manager/portfolio" element={<BranchManagerPortfolioPage />} />
+        <Route path="/branch-manager/collections" element={<BranchManagerCollectionsPage />} />
       </Route>
 
       <Route element={<ProtectedRoute allowedRoles={["loan_vetting_committee"]} />}>
         <Route path="/committee" element={<CommitteeDashboardPage />} />
+        <Route path="/committee/queue" element={<CommitteeQueuePage />} />
+        <Route path="/committee/decisions" element={<CommitteeDecisionsPage />} />
       </Route>
 
       <Route element={<ProtectedRoute allowedRoles={["cashier_finance_officer"]} />}>
         <Route path="/finance" element={<FinanceDashboardPage />} />
+        <Route path="/finance/disbursements" element={<FinanceDisbursementsPage />} />
+        <Route path="/finance/financials" element={<FinanceFinancialsPage />} />
+        <Route path="/finance/reports" element={<FinanceReportsPage />} />
       </Route>
 
       <Route element={<ProtectedRoute allowedRoles={["management"]} />}>
         <Route path="/management" element={<ManagementDashboardPage />} />
+        <Route path="/management/reports" element={<ManagementReportsPage />} />
+        <Route path="/management/branch-ranking" element={<ManagementBranchRankingPage />} />
+        <Route path="/management/staff-performance" element={<ManagementStaffPerformancePage />} />
       </Route>
 
       <Route element={<ProtectedRoute allowedRoles={["customer"]} />}>
