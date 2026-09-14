@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: rhupa-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    # Runs pending Alembic migrations before every boot — the free plan has
+    # no separate pre-deploy step, so this is the reliable place for it.
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      # Set to your Neon/Supabase connection string after creating it —
+      # never committed here (CLAUDE.md: secrets stay out of the repo).
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "45"
+      # Set to your deployed Vercel frontend URL, e.g.
+      # https://rhupa-lenders.vercel.app (no trailing slash).
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false

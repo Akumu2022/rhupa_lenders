@@ -4,6 +4,10 @@ sqlmodel==0.0.42
 SQLAlchemy==2.0.52
 alembic==1.19.2
 email-validator==2.3.0
+# CLAUDE.md §2: SQLite for dev, PostgreSQL on deploy — this is the driver
+# `DATABASE_URL` needs once it points at a postgresql:// URL instead of
+# sqlite:///./dev.db (e.g. a free Neon/Supabase instance).
+psycopg2-binary==2.9.11
 
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
