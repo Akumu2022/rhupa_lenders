@@ -2,22 +2,26 @@
 company_id claims (company_id null for super_admin).
 """
 
+from typing import Union
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel import Session, select
 
 from ..db import get_session
 from ..limiter import limiter
 from ..models import User
-from ..schemas.auth import LoginRequest, TokenResponse
-from ..security import create_access_token, verify_password
+from ..schemas.auth import LoginRequest, MfaRequiredResponse, TokenResponse
+from ..security import create_access_token, create_mfa_pending_token, verify_password
 from ..tenancy import tenant_context
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=Union[TokenResponse, MfaRequiredResponse])
 @limiter.limit("10/minute")
-def login(request: Request, body: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
+def login(
+    request: Request, body: LoginRequest, session: Session = Depends(get_session)
+) -> Union[TokenResponse, MfaRequiredResponse]:
     # Email is globally unique and the client already asserts it by typing it
     # in — there is no company to scope by yet at this point, so this is the
     # one other place (besides /platform and scripts/tests) tenant_context(None)
@@ -30,6 +34,12 @@ def login(request: Request, body: LoginRequest, session: Session = Depends(get_s
 
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account deactivated")
+
+    # CLAUDE.md §4/MFA: password step succeeded, but a second factor is
+    # still required before a real access token is issued — see
+    # app/routers/mfa.py::verify. Customers never have mfa_enabled set.
+    if user.mfa_enabled:
+        return MfaRequiredResponse(mfa_token=create_mfa_pending_token(user_id=user.id))
 
     token = create_access_token(user_id=user.id, role=user.role.value, company_id=user.company_id)
     return TokenResponse(access_token=token, role=user.role.value, company_id=user.company_id)

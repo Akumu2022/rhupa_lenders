@@ -4,14 +4,23 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { apiRequest, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
-import { Badge, Banner, Button, Card, Field, PageHeader, Select, TextInput } from "../../components/ui";
+import { Badge, Banner, Button, Card, Field, PageHeader, PasswordInput, Select, StatCard, TextInput } from "../../components/ui";
 import { Combobox } from "../../components/Combobox";
 import { DataTable } from "../../components/DataTable";
 import { Drawer } from "../../components/Drawer";
 import { useToast } from "../../components/toast";
 import { useApiMutation } from "../../hooks/useApiMutation";
-import type { BranchResponse } from "../../schemas/admin";
-import { BRANCH_REQUIRED_ROLES, staffCreateSchema, type StaffCreateInput, type UserResponse } from "../../schemas/staff";
+import { kycStatusTone } from "../../schemas/compliance";
+import type { BranchResponse, UserSummaryResponse } from "../../schemas/admin";
+import type { CustomerResponse } from "../../schemas/customers";
+import {
+  BRANCH_REQUIRED_ROLES,
+  staffCreateSchema,
+  staffPasswordResetSchema,
+  type StaffCreateInput,
+  type StaffPasswordResetInput,
+  type UserResponse,
+} from "../../schemas/staff";
 
 const ROLE_LABELS: Record<string, string> = {
   credit_officer: "Credit officer",
@@ -104,7 +113,7 @@ function AddStaffDrawer({ open, onClose }: { open: boolean; onClose: () => void 
           <TextInput type="email" {...register("email")} />
         </Field>
         <Field label="Password" error={errors.password?.message}>
-          <TextInput type="password" {...register("password")} />
+          <PasswordInput {...register("password")} />
         </Field>
         <Field label="Role" error={errors.role?.message}>
           <Select {...register("role")}>
@@ -213,52 +222,184 @@ function StatusToggle({ staff }: { staff: UserResponse }) {
   );
 }
 
-export function CompanyAdminUsersPage() {
-  const [drawerOpen, setDrawerOpen] = useState(false);
+/** system_administrator resetting a staff member's forgotten password —
+ * staff only, never a customer (app/routers/staff.py enforces this
+ * server-side too; this UI simply never offers the action anywhere near the
+ * Customers tab). */
+function ResetStaffPasswordAction({ staff }: { staff: UserResponse }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<StaffPasswordResetInput>({ resolver: zodResolver(staffPasswordResetSchema) });
 
+  async function onSubmit(values: StaffPasswordResetInput) {
+    setError(null);
+    try {
+      await apiRequest(`/staff/${staff.id}/reset-password`, { method: "POST", body: values });
+      toast(`${staff.full_name}'s password has been reset.`, "success");
+      reset();
+      setOpen(false);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setOpen(true)}>
+        Reset password
+      </Button>
+    );
+  }
+
+  return (
+    <form className="flex items-start gap-2" onSubmit={handleSubmit(onSubmit)} noValidate>
+      <div>
+        <PasswordInput placeholder="New password" className="w-36 py-1 text-xs" {...register("new_password")} />
+        {errors.new_password ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{errors.new_password.message}</p> : null}
+        {error ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{error}</p> : null}
+      </div>
+      <Button type="submit" className="px-2 py-1 text-xs" disabled={isSubmitting}>
+        {isSubmitting ? "…" : "Confirm"}
+      </Button>
+      <Button type="button" variant="secondary" className="px-2 py-1 text-xs" onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
+    </form>
+  );
+}
+
+function StaffTable() {
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const staffQuery = useQuery({
     queryKey: ["staff"],
     queryFn: () => apiRequest<UserResponse[]>("/staff"),
   });
 
   return (
-    <AppShell>
-      <PageHeader
-        title="Users"
-        subtitle="Branch and company-wide staff in your company"
-        actions={<Button onClick={() => setDrawerOpen(true)}>Add staff</Button>}
+    <>
+      <div className="mb-3 flex justify-end">
+        <Button onClick={() => setDrawerOpen(true)}>Add staff</Button>
+      </div>
+      <DataTable
+        columns={[
+          { key: "name", header: "Name", sortable: true, accessor: (s: UserResponse) => s.full_name },
+          { key: "email", header: "Email", accessor: (s) => s.email },
+          {
+            key: "role",
+            header: "Role",
+            accessor: (s) => s.role,
+            render: (s) => <Badge tone="brand">{s.role.replace(/_/g, " ")}</Badge>,
+          },
+          {
+            key: "status",
+            header: "Status",
+            accessor: (s) => (s.is_active ? "active" : "inactive"),
+            render: (s) => <Badge tone={s.is_active ? "success" : "neutral"}>{s.is_active ? "Active" : "Inactive"}</Badge>,
+          },
+        ]}
+        data={staffQuery.data}
+        getRowId={(s) => s.id}
+        isLoading={staffQuery.isLoading}
+        isError={staffQuery.isError}
+        searchKeys={["name", "email"]}
+        searchPlaceholder="Search staff…"
+        emptyMessage="No staff yet — add your first branch or company-wide team member."
+        rowActions={(s) => (
+          <div className="flex justify-end gap-2">
+            <StatusToggle staff={s} />
+            <ResetStaffPasswordAction staff={s} />
+          </div>
+        )}
       />
-
-      <Card>
-        <DataTable
-          columns={[
-            { key: "name", header: "Name", sortable: true, accessor: (s: UserResponse) => s.full_name },
-            { key: "email", header: "Email", accessor: (s) => s.email },
-            {
-              key: "role",
-              header: "Role",
-              accessor: (s) => s.role,
-              render: (s) => <Badge tone="brand">{s.role.replace(/_/g, " ")}</Badge>,
-            },
-            {
-              key: "status",
-              header: "Status",
-              accessor: (s) => (s.is_active ? "active" : "inactive"),
-              render: (s) => <Badge tone={s.is_active ? "success" : "neutral"}>{s.is_active ? "Active" : "Inactive"}</Badge>,
-            },
-          ]}
-          data={staffQuery.data}
-          getRowId={(s) => s.id}
-          isLoading={staffQuery.isLoading}
-          isError={staffQuery.isError}
-          searchKeys={["name", "email"]}
-          searchPlaceholder="Search staff…"
-          emptyMessage="No staff yet — add your first branch or company-wide team member."
-          rowActions={(s) => <StatusToggle staff={s} />}
-        />
-      </Card>
-
       <AddStaffDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+    </>
+  );
+}
+
+function CustomersTable() {
+  const customersQuery = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => apiRequest<CustomerResponse[]>("/customers"),
+  });
+
+  return (
+    <DataTable
+      columns={[
+        {
+          key: "customer_number",
+          header: "Customer #",
+          accessor: (c: CustomerResponse) => c.customer_number ?? "—",
+          render: (c) => <span className="font-mono text-xs">{c.customer_number ?? "—"}</span>,
+        },
+        { key: "name", header: "Name", sortable: true, accessor: (c) => c.full_name },
+        { key: "email", header: "Email", accessor: (c) => c.email },
+        {
+          key: "kyc_status",
+          header: "KYC Status",
+          accessor: (c) => c.kyc_status,
+          render: (c) => <Badge tone={kycStatusTone(c.kyc_status)}>{c.kyc_status}</Badge>,
+        },
+        {
+          key: "created_at",
+          header: "Registered",
+          sortable: true,
+          accessor: (c) => c.created_at,
+          render: (c) => new Date(c.created_at).toLocaleDateString(),
+        },
+      ]}
+      data={customersQuery.data}
+      getRowId={(c) => c.id}
+      isLoading={customersQuery.isLoading}
+      isError={customersQuery.isError}
+      searchKeys={["name", "email", "customer_number"]}
+      searchPlaceholder="Search by name, email, or customer #…"
+      // Customers self-register and manage their own accounts — read-only
+      // here, no create/reset actions (matches the explicit "staff only"
+      // password-reset scope decision).
+      emptyMessage="No customers registered yet."
+    />
+  );
+}
+
+export function CompanyAdminUsersPage() {
+  const [tab, setTab] = useState<"staff" | "customers">("staff");
+
+  const summaryQuery = useQuery({
+    queryKey: ["admin", "users", "summary"],
+    queryFn: () => apiRequest<UserSummaryResponse>("/admin/users/summary"),
+  });
+
+  return (
+    <AppShell>
+      <PageHeader title="Users" subtitle="Staff and customers in your company" />
+
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Staff" value={summaryQuery.data?.staff_total ?? 0} tone="brand" icon="users" />
+        <StatCard label="Staff inactive" value={summaryQuery.data?.staff_inactive ?? 0} tone="neutral" />
+        <StatCard label="Customers" value={summaryQuery.data?.customer_total ?? 0} tone="brand" icon="user" />
+        <StatCard label="Customers inactive" value={summaryQuery.data?.customer_inactive ?? 0} tone="neutral" />
+      </div>
+
+      <div className="mb-4 flex gap-2">
+        <Button variant={tab === "staff" ? "primary" : "secondary"} className="px-3 py-1.5 text-xs" onClick={() => setTab("staff")}>
+          Staff
+        </Button>
+        <Button
+          variant={tab === "customers" ? "primary" : "secondary"}
+          className="px-3 py-1.5 text-xs"
+          onClick={() => setTab("customers")}
+        >
+          Customers
+        </Button>
+      </div>
+
+      <Card>{tab === "staff" ? <StaffTable /> : <CustomersTable />}</Card>
     </AppShell>
   );
 }

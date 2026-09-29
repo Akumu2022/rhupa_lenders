@@ -17,14 +17,17 @@ from app.models import (
     Company,
     ExpenseCategory,
     ExpenseEntry,
+    Guarantor,
     Loan,
     LoanApplication,
     LoanProduct,
+    MfaRecoveryCode,
     Profile,
     Referee,
     RepaymentSchedule,
     ReviewDecision,
     ReviewStage,
+    Security,
     Transaction,
     TransactionType,
     User,
@@ -314,6 +317,54 @@ def seeded(engine):
                     description="B rent",
                     created_by=user_b1.id,
                 )
+            )
+            session.commit()
+
+            session.add(
+                Guarantor(
+                    company_id=company_a_id,
+                    application_id=application_a.id,
+                    full_name="A Guarantor",
+                    id_number="A-GID-1",
+                    phone_number="+254700000031",
+                    guaranteed_amount=Decimal("5000.00"),
+                )
+            )
+            session.add(
+                Guarantor(
+                    company_id=company_b_id,
+                    application_id=application_b.id,
+                    full_name="B Guarantor",
+                    id_number="B-GID-1",
+                    phone_number="+254700000032",
+                    guaranteed_amount=Decimal("8000.00"),
+                )
+            )
+            session.commit()
+
+            session.add(
+                Security(
+                    company_id=company_a_id,
+                    application_id=application_a.id,
+                    description="A Motorbike",
+                    estimated_value=Decimal("60000.00"),
+                )
+            )
+            session.add(
+                Security(
+                    company_id=company_b_id,
+                    application_id=application_b.id,
+                    description="B Motorbike",
+                    estimated_value=Decimal("70000.00"),
+                )
+            )
+            session.commit()
+
+            session.add(
+                MfaRecoveryCode(company_id=company_a_id, user_id=user_a1.id, code_hash="a-hash")
+            )
+            session.add(
+                MfaRecoveryCode(company_id=company_b_id, user_id=user_b1.id, code_hash="b-hash")
             )
             session.commit()
 
@@ -636,3 +687,86 @@ def test_expense_entry_unscoped_query_fails_closed(seeded):
     with Session(seeded["engine"]) as session:
         with pytest.raises(TenantScopeNotSetError):
             session.exec(select(ExpenseEntry)).all()
+
+
+def test_guarantor_scoped_query_returns_only_own_company_rows(seeded):
+    """CLAUDE.md §5/§27 rule #12: Guarantor was added in M12."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            guarantors = session.exec(select(Guarantor)).all()
+
+    assert len(guarantors) == 1
+    assert guarantors[0].full_name == "A Guarantor"
+    assert guarantors[0].company_id == seeded["company_a_id"]
+
+
+def test_guarantor_scoped_query_cannot_reach_another_companys_row(seeded):
+    """A leak here would expose another company's guarantor's ID number and
+    phone — the same catastrophic scenario CLAUDE.md §5 calls out by name."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            leaked = session.exec(select(Guarantor).where(Guarantor.full_name == "B Guarantor")).first()
+
+    assert leaked is None
+
+
+def test_guarantor_unscoped_query_fails_closed(seeded):
+    with Session(seeded["engine"]) as session:
+        with pytest.raises(TenantScopeNotSetError):
+            session.exec(select(Guarantor)).all()
+
+
+def test_security_scoped_query_returns_only_own_company_rows(seeded):
+    """CLAUDE.md §5/§27 rule #12: Security (collateral) was added in M12."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            securities = session.exec(select(Security)).all()
+
+    assert len(securities) == 1
+    assert securities[0].description == "A Motorbike"
+    assert securities[0].company_id == seeded["company_a_id"]
+
+
+def test_security_scoped_query_cannot_reach_another_companys_row(seeded):
+    """A leak here would expose another company's borrower's pledged
+    collateral — the same catastrophic scenario CLAUDE.md §5 calls out by
+    name."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            leaked = session.exec(select(Security).where(Security.description == "B Motorbike")).first()
+
+    assert leaked is None
+
+
+def test_security_unscoped_query_fails_closed(seeded):
+    with Session(seeded["engine"]) as session:
+        with pytest.raises(TenantScopeNotSetError):
+            session.exec(select(Security)).all()
+
+
+def test_mfa_recovery_code_scoped_query_returns_only_own_company_rows(seeded):
+    """CLAUDE.md §5/§4 rule #12: MfaRecoveryCode was added with TOTP MFA."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            codes = session.exec(select(MfaRecoveryCode)).all()
+
+    assert len(codes) == 1
+    assert codes[0].code_hash == "a-hash"
+    assert codes[0].company_id == seeded["company_a_id"]
+
+
+def test_mfa_recovery_code_scoped_query_cannot_reach_another_companys_row(seeded):
+    """A leak here would expose another company's staff account to a
+    guessable recovery-code hash reference — the same catastrophic scenario
+    CLAUDE.md §5 calls out by name."""
+    with Session(seeded["engine"]) as session:
+        with tenant_context(seeded["company_a_id"]):
+            leaked = session.exec(select(MfaRecoveryCode).where(MfaRecoveryCode.code_hash == "b-hash")).first()
+
+    assert leaked is None
+
+
+def test_mfa_recovery_code_unscoped_query_fails_closed(seeded):
+    with Session(seeded["engine"]) as session:
+        with pytest.raises(TenantScopeNotSetError):
+            session.exec(select(MfaRecoveryCode)).all()

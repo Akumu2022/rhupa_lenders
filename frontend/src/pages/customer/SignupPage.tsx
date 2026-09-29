@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { apiRequest, ApiError, formatApiErrorDetail } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
-import { Banner, Button, Card, Field, LoadingRow, PageHeader, TextInput } from "../../components/ui";
+import { Banner, Button, Card, Field, LoadingRow, PageHeader, PasswordInput, TextInput } from "../../components/ui";
 import { ThemeToggle } from "../../components/ThemeToggle";
 import { customerSignupSchema, type CustomerSignupInput, type SignupCodeInfoResponse } from "../../schemas/company";
 import type { TokenResponse } from "../../schemas/auth";
@@ -134,7 +134,7 @@ export function CustomerSignupPage() {
                   <TextInput type="email" autoComplete="email" {...register("email")} />
                 </Field>
                 <Field label="Password" error={errors.password?.message}>
-                  <TextInput type="password" autoComplete="new-password" {...register("password")} />
+                  <PasswordInput autoComplete="new-password" {...register("password")} />
                 </Field>
                 {serverError ? <Banner kind="error">{serverError}</Banner> : null}
                 <Button

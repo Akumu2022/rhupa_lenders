@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from ..application_review import check_no_self_approval, write_review_stage
+from ..application_review import check_no_self_approval, require_guarantor_if_needed, write_review_stage
 from ..audit import write_audit
 from ..db import get_session
 from ..deps import require_role
@@ -108,6 +108,8 @@ def decide_committee_application(
     # stages of one application's chain (e.g. also having decided this one
     # as its branch manager, if roles were ever held by the same person).
     check_no_self_approval(session, application_id, member.id)
+    if body.decision == "approve":
+        require_guarantor_if_needed(session, application_id, product)
 
     new_status = ApplicationStatus.approved if body.decision == "approve" else ApplicationStatus.rejected
     result = session.execute(

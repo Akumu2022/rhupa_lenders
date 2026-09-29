@@ -4,6 +4,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .loan import RepaymentInstallmentResponse
+
 
 class AuditLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -69,6 +71,28 @@ class AdminLoanProductResponse(BaseModel):
     penalty_cap_ratio: Decimal
     # CLAUDE.md §26 (M13)
     branch_manager_delegated_limit: Decimal
+    # CLAUDE.md §27 (M12)
+    requires_guarantor: bool
+
+
+class LoanProductCreateRequest(BaseModel):
+    """CLAUDE.md §19: products are data rows a system_administrator edits,
+    not values hard-coded in the app — every field a product needs is
+    supplied at creation, not defaulted in silently."""
+
+    name: str = Field(min_length=1)
+    description: Optional[str] = None
+    min_amount: Decimal = Field(gt=0)
+    max_amount: Decimal = Field(gt=0)
+    interest_rate: Decimal = Field(ge=0)
+    repayment_period_days: int = Field(gt=0)
+    interest_model: Literal["flat", "reducing_balance", "daily_accrual"] = "flat"
+    installment_count: int = Field(default=1, gt=0)
+    penalty_rate: Decimal = Field(default=Decimal("1.00"), ge=0)
+    grace_period_days: int = Field(default=3, ge=0)
+    penalty_cap_ratio: Decimal = Field(default=Decimal("1.00"), ge=0)
+    branch_manager_delegated_limit: Decimal = Field(default=Decimal("100000.00"), ge=0)
+    requires_guarantor: bool = False
 
 
 class LoanProductUpdateRequest(BaseModel):
@@ -89,6 +113,7 @@ class LoanProductUpdateRequest(BaseModel):
     grace_period_days: Optional[int] = Field(default=None, ge=0)
     penalty_cap_ratio: Optional[Decimal] = Field(default=None, ge=0)
     branch_manager_delegated_limit: Optional[Decimal] = Field(default=None, ge=0)
+    requires_guarantor: Optional[bool] = None
 
 
 class BranchCreateRequest(BaseModel):
@@ -146,3 +171,60 @@ class PortfolioSummaryResponse(BaseModel):
     defaulted_loans: int
     loans_disbursed_this_month: int
     as_of: date
+
+
+class UserSummaryResponse(BaseModel):
+    """system_administrator's own-company staff/customer breakdown — the
+    same shape/computation as the platform-tier CompanyUserCounts
+    (app/user_stats.py), just scoped by the automatic tenant filter here
+    instead of an explicit company_id."""
+
+    staff_total: int
+    staff_active: int
+    staff_inactive: int
+    customer_total: int
+    customer_active: int
+    customer_inactive: int
+
+
+class LoanCalculatorRequest(BaseModel):
+    """CLAUDE.md §23: frontend never computes real money — this is a
+    non-persisting preview that calls the exact same
+    app/loan_calculation.py::generate_schedule dispatcher the real approval
+    flow uses. No Loan/RepaymentSchedule rows are written."""
+
+    principal: Decimal = Field(gt=0)
+    interest_rate: Decimal = Field(ge=0)
+    interest_model: Literal["flat", "reducing_balance", "daily_accrual"] = "flat"
+    term_days: int = Field(gt=0)
+    installment_count: int = Field(default=1, gt=0)
+    start_date: Optional[date] = None
+
+
+class LoanCalculatorResponse(BaseModel):
+    principal: Decimal
+    total_interest: Decimal
+    total_repayable: Decimal
+    schedule: list[RepaymentInstallmentResponse]
+
+
+class AdminLoanDetailResponse(BaseModel):
+    """Staff-facing loan detail — the same shape CustomerLoanResponse already
+    gives the borrower on /loans/me, just for staff (system_administrator,
+    this round). No CRUD on the live loan record itself — see the schedule's
+    own amount_paid/is_paid fields, which come from the real repayment
+    ledger, never hand-edited."""
+
+    id: int
+    customer_full_name: str
+    customer_email: str
+    loan_product_name: str
+    principal: Decimal
+    interest_rate: Decimal
+    total_repayable: Decimal
+    penalties_accrued: Decimal
+    outstanding_balance: Decimal
+    status: str
+    disbursed_at: Optional[datetime]
+    created_at: datetime
+    schedule: list[RepaymentInstallmentResponse]

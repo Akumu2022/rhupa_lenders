@@ -1,12 +1,15 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
 import { apiRequest, ApiError, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
 import { Badge, Banner, Button, Card, EmptyState, Field, PageHeader, Select, SectionLabel, TextInput } from "../../components/ui";
+import { DataTable } from "../../components/DataTable";
+import { Drawer } from "../../components/Drawer";
 import { useToast } from "../../components/toast";
+import { useAuth } from "../../auth/AuthContext";
 import { kycStatusTone } from "../../schemas/compliance";
 import type { ComplianceProfileResponse } from "../../schemas/compliance";
 import {
@@ -17,6 +20,8 @@ import {
   type RefereeInputForm,
   type RefereeResponse,
 } from "../../schemas/customers";
+import type { LoanApplicationResponse, LoanProductResponse } from "../../schemas/loan";
+import { applicationHasPendingDecision, applicationStatusLabel, applicationStatusTone } from "../customer/shared";
 
 function DetailRow({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
@@ -27,7 +32,7 @@ function DetailRow({ label, value }: { label: string; value: string | number | n
   );
 }
 
-function BusinessAssessmentSection({ customerId }: { customerId: number }) {
+function BusinessAssessmentSection({ customerId, canManage }: { customerId: number; canManage: boolean }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -93,14 +98,16 @@ function BusinessAssessmentSection({ customerId }: { customerId: number }) {
       <Card>
         <div className="flex items-center justify-between">
           <SectionLabel>Business assessment</SectionLabel>
-          <Button
-            onClick={() => {
-              reset({ sales_frequency: "monthly", existing_debt_obligations: "0" });
-              setEditing(true);
-            }}
-          >
-            Add assessment
-          </Button>
+          {canManage ? (
+            <Button
+              onClick={() => {
+                reset({ sales_frequency: "monthly", existing_debt_obligations: "0" });
+                setEditing(true);
+              }}
+            >
+              Add assessment
+            </Button>
+          ) : null}
         </div>
         <EmptyState>No business assessment captured yet.</EmptyState>
       </Card>
@@ -113,9 +120,11 @@ function BusinessAssessmentSection({ customerId }: { customerId: number }) {
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <SectionLabel>Business assessment</SectionLabel>
-          <Button variant="secondary" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
+          {canManage ? (
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              Edit
+            </Button>
+          ) : null}
         </div>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <DetailRow label="Business name" value={a.business_name} />
@@ -208,7 +217,7 @@ function BusinessAssessmentSection({ customerId }: { customerId: number }) {
   );
 }
 
-function RefereesSection({ customerId }: { customerId: number }) {
+function RefereesSection({ customerId, canManage }: { customerId: number; canManage: boolean }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [adding, setAdding] = useState(false);
@@ -241,7 +250,7 @@ function RefereesSection({ customerId }: { customerId: number }) {
     <Card>
       <div className="mb-3 flex items-center justify-between">
         <SectionLabel>Referees</SectionLabel>
-        {!adding ? (
+        {canManage && !adding ? (
           <Button variant="secondary" onClick={() => setAdding(true)}>
             Add referee
           </Button>
@@ -292,6 +301,164 @@ function RefereesSection({ customerId }: { customerId: number }) {
   );
 }
 
+/** CLAUDE.md §8: the credit officer prepares the application on the
+ * customer's behalf — an assisted path alongside (not replacing) customer
+ * self-service (frontend/src/pages/customer/ApplyPage.tsx), which this
+ * mirrors: product dropdown + amount + the same upfront estimated-terms
+ * preview (§19 borrower transparency), just posting to
+ * POST /customers/{id}/applications instead of /applications. */
+function ApplyForCustomerDrawer({
+  customerId,
+  open,
+  onClose,
+}: {
+  customerId: number;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [amount, setAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const productsQuery = useQuery({
+    queryKey: ["loan-products"],
+    queryFn: () => apiRequest<LoanProductResponse[]>("/loan-products"),
+    enabled: open,
+  });
+
+  const submit = useMutation({
+    mutationFn: () =>
+      apiRequest<LoanApplicationResponse>(`/customers/${customerId}/applications`, {
+        method: "POST",
+        body: { loan_product_id: selectedProductId, amount_requested: amount },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["customers", customerId, "applications"] });
+      toast("Application submitted.", "success");
+      setAmount("");
+      setSelectedProductId(null);
+      setError(null);
+      onClose();
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const selectedProduct = (productsQuery.data ?? []).find((p) => p.id === selectedProductId);
+  const requestedAmount = Number(amount);
+  const preview =
+    selectedProduct && requestedAmount > 0
+      ? {
+          rate: selectedProduct.interest_rate,
+          interest: ((requestedAmount * Number(selectedProduct.interest_rate)) / 100).toFixed(2),
+          total: (requestedAmount + (requestedAmount * Number(selectedProduct.interest_rate)) / 100).toFixed(2),
+          termDays: selectedProduct.repayment_period_days,
+        }
+      : null;
+
+  return (
+    <Drawer open={open} onClose={onClose} title="Apply for a loan">
+      <div className="space-y-4">
+        <Field label="Loan product">
+          <Select
+            value={selectedProductId ?? ""}
+            onChange={(e) => setSelectedProductId(e.target.value ? Number(e.target.value) : null)}
+          >
+            <option value="">Select a product…</option>
+            {productsQuery.data?.map((product) => (
+              <option key={product.id} value={product.id}>
+                {product.name} (KES {product.min_amount}–{product.max_amount}, {product.interest_rate}%)
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Amount requested (KES)">
+          <TextInput type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </Field>
+        {preview ? (
+          <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm dark:bg-slate-800/60">
+            <p className="font-medium text-slate-700 dark:text-slate-300">Estimated terms</p>
+            <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-slate-600 dark:text-slate-400">
+              <span>Interest ({preview.rate}%)</span>
+              <span className="text-right font-medium">KES {preview.interest}</span>
+              <span>Total repayable</span>
+              <span className="text-right font-medium">KES {preview.total}</span>
+              <span>Repayment due</span>
+              <span className="text-right font-medium">in {preview.termDays} days</span>
+            </div>
+          </div>
+        ) : null}
+        {error ? <Banner kind="error">{error}</Banner> : null}
+        <Button disabled={!selectedProductId || !amount || submit.isPending} onClick={() => submit.mutate()} className="w-full">
+          {submit.isPending ? "Submitting…" : "Submit application"}
+        </Button>
+      </div>
+    </Drawer>
+  );
+}
+
+function ApplicationsSection({ customerId, canManage }: { customerId: number; canManage: boolean }) {
+  const [applyOpen, setApplyOpen] = useState(false);
+
+  const applicationsQuery = useQuery({
+    queryKey: ["customers", customerId, "applications"],
+    queryFn: () => apiRequest<LoanApplicationResponse[]>(`/customers/${customerId}/applications`),
+  });
+  const productsQuery = useQuery({
+    queryKey: ["loan-products"],
+    queryFn: () => apiRequest<LoanProductResponse[]>("/loan-products"),
+  });
+  const productById = new Map((productsQuery.data ?? []).map((p) => [p.id, p]));
+  const hasPending = applicationsQuery.data ? applicationHasPendingDecision(applicationsQuery.data) : false;
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-center justify-between">
+        <SectionLabel>Applications</SectionLabel>
+        {canManage ? (
+          <Button disabled={hasPending} onClick={() => setApplyOpen(true)}>
+            Apply for a loan
+          </Button>
+        ) : null}
+      </div>
+      {canManage && hasPending ? (
+        <Banner kind="info">This customer already has a pending application — it must be decided first.</Banner>
+      ) : null}
+      <DataTable
+        columns={[
+          { key: "product", header: "Product", accessor: (a: LoanApplicationResponse) => productById.get(a.loan_product_id)?.name ?? "Loan" },
+          {
+            key: "amount",
+            header: "Amount",
+            accessor: (a) => a.amount_requested,
+            render: (a) => `KES ${a.amount_requested}`,
+          },
+          {
+            key: "status",
+            header: "Status",
+            accessor: (a) => a.status,
+            render: (a) => <Badge tone={applicationStatusTone(a.status)}>{applicationStatusLabel(a.status)}</Badge>,
+          },
+          {
+            key: "created_at",
+            header: "Submitted",
+            sortable: true,
+            accessor: (a) => a.created_at,
+            render: (a) => new Date(a.created_at).toLocaleDateString(),
+          },
+        ]}
+        data={applicationsQuery.data}
+        getRowId={(a) => a.id}
+        isLoading={applicationsQuery.isLoading}
+        isError={applicationsQuery.isError}
+        emptyMessage="No applications yet."
+      />
+      <ApplyForCustomerDrawer customerId={customerId} open={applyOpen} onClose={() => setApplyOpen(false)} />
+    </Card>
+  );
+}
+
 /**
  * Thin wrapper so navigating between two customers (only the `:customerId`
  * route param changes) fully remounts the detail view below — otherwise
@@ -305,6 +472,12 @@ export function CustomerDetailPage() {
 }
 
 function CustomerDetailView({ customerId }: { customerId: string | undefined }) {
+  const { auth } = useAuth();
+  // CLAUDE.md §8: credit_officer prepares (edits referees/business
+  // assessment, applies on the customer's behalf); branch_manager and
+  // system_administrator get the same page read-only, for oversight.
+  const canManage = auth?.role === "credit_officer";
+
   const id = Number(customerId);
   const isValidId = Number.isFinite(id);
 
@@ -366,8 +539,9 @@ function CustomerDetailView({ customerId }: { customerId: string | undefined }) 
             </dl>
           </Card>
 
-          <RefereesSection customerId={id} />
-          <BusinessAssessmentSection customerId={id} />
+          <ApplicationsSection customerId={id} canManage={canManage} />
+          <RefereesSection customerId={id} canManage={canManage} />
+          <BusinessAssessmentSection customerId={id} canManage={canManage} />
 
           <p className="text-xs text-slate-400 dark:text-slate-500">
             KYC document review and verify/reject happen from the{" "}

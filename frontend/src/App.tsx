@@ -11,6 +11,7 @@ import { CompanyAdminUsersPage } from "./pages/company/UsersPage";
 import { CompanyApplicationsPage } from "./pages/company/ApplicationsPage";
 import { CompanyKycPage } from "./pages/company/KycPage";
 import { CompanyLoansPage } from "./pages/company/LoansPage";
+import { CompanyLoanCalculatorPage } from "./pages/company/LoanCalculatorPage";
 import { CompanyProductsPage } from "./pages/company/ProductsPage";
 import { CompanyPortfolioPage } from "./pages/company/PortfolioPage";
 import { CompanyAuditLogPage } from "./pages/company/AuditLogPage";
@@ -23,8 +24,8 @@ import { CreditApplicationsPage } from "./pages/credit/ApplicationsPage";
 import { CreditDecisionsPage } from "./pages/credit/DecisionsPage";
 import { CollectionsPage } from "./pages/credit/CollectionsPage";
 import { RegisterCustomerPage } from "./pages/credit/RegisterCustomerPage";
-import { CustomerListPage } from "./pages/credit/CustomerListPage";
-import { CustomerDetailPage } from "./pages/credit/CustomerDetailPage";
+import { CustomerListPage } from "./pages/customers/CustomerListPage";
+import { CustomerDetailPage } from "./pages/customers/CustomerDetailPage";
 import { BranchManagerDashboardPage } from "./pages/branch-manager/DashboardPage";
 import { BranchManagerApplicationsPage } from "./pages/branch-manager/ApplicationsPage";
 import { BranchManagerStaffPage } from "./pages/branch-manager/StaffPage";
@@ -46,6 +47,7 @@ import { CustomerLoansPage } from "./pages/customer/LoansPage";
 import { CustomerApplyPage } from "./pages/customer/ApplyPage";
 import { CustomerRepaymentsPage } from "./pages/customer/RepaymentsPage";
 import { CustomerProfilePage } from "./pages/customer/ProfilePage";
+import { SecurityPage } from "./pages/SecurityPage";
 
 function App() {
   return (
@@ -60,6 +62,26 @@ function App() {
         <Route path="/" element={<DashboardRouter />} />
       </Route>
 
+      {/* CLAUDE.md §4/MFA: every staff role, never customers (they can't
+          enroll — see app/routers/mfa.py). */}
+      <Route
+        element={
+          <ProtectedRoute
+            allowedRoles={[
+              "super_admin",
+              "system_administrator",
+              "credit_officer",
+              "branch_manager",
+              "loan_vetting_committee",
+              "cashier_finance_officer",
+              "management",
+            ]}
+          />
+        }
+      >
+        <Route path="/security" element={<SecurityPage />} />
+      </Route>
+
       <Route element={<ProtectedRoute allowedRoles={["super_admin"]} />}>
         <Route path="/platform" element={<PlatformDashboardPage />} />
         <Route path="/platform/companies" element={<PlatformCompaniesPage />} />
@@ -72,11 +94,14 @@ function App() {
         <Route path="/admin/applications" element={<CompanyApplicationsPage />} />
         <Route path="/admin/kyc" element={<CompanyKycPage />} />
         <Route path="/admin/loans" element={<CompanyLoansPage />} />
+        <Route path="/admin/loans/calculator" element={<CompanyLoanCalculatorPage />} />
         <Route path="/admin/collections" element={<CollectionsPage />} />
         <Route path="/admin/products" element={<CompanyProductsPage />} />
         <Route path="/admin/portfolio" element={<CompanyPortfolioPage />} />
         <Route path="/admin/audit-log" element={<CompanyAuditLogPage />} />
         <Route path="/admin/company-profile" element={<CompanyProfilePage />} />
+        <Route path="/admin/customers" element={<CustomerListPage />} />
+        <Route path="/admin/customers/:customerId" element={<CustomerDetailPage />} />
       </Route>
 
       {/* CLAUDE.md §3/M10: compliance_officer retired — credit_officer now
@@ -104,6 +129,8 @@ function App() {
         <Route path="/branch-manager/staff" element={<BranchManagerStaffPage />} />
         <Route path="/branch-manager/portfolio" element={<BranchManagerPortfolioPage />} />
         <Route path="/branch-manager/collections" element={<BranchManagerCollectionsPage />} />
+        <Route path="/branch-manager/customers" element={<CustomerListPage />} />
+        <Route path="/branch-manager/customers/:customerId" element={<CustomerDetailPage />} />
       </Route>
 
       <Route element={<ProtectedRoute allowedRoles={["loan_vetting_committee"]} />}>

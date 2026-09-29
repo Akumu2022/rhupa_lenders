@@ -1,9 +1,10 @@
 import re
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from ..models import CompanyStatus
+from ..models import CompanyStatus, UserRole
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
@@ -64,6 +65,50 @@ class CompanyResponse(BaseModel):
     support_phone: Optional[str] = None
     address: Optional[str] = None
     registration_number: Optional[str] = None
+    created_at: datetime
+
+
+class CompanyUserCounts(BaseModel):
+    """Staff vs. customer breakdown, further split by active/inactive — the
+    platform company-detail screen's headline stat cards."""
+
+    staff_total: int
+    staff_active: int
+    staff_inactive: int
+    customer_total: int
+    customer_active: int
+    customer_inactive: int
+
+
+class CompanyDetailResponse(CompanyResponse):
+    users: CompanyUserCounts
+
+
+class CompanyUserRow(BaseModel):
+    """One row of the company-detail user table — deliberately not the full
+    UserResponse shape (no branch_id noise on a cross-company screen)."""
+
+    id: int
+    email: str
+    full_name: str
+    role: UserRole
+    is_active: bool
+
+
+class CompanyActivityPoint(BaseModel):
+    date: date
+    audit_log_count: int
+
+
+class CompanyActivityResponse(BaseModel):
+    """CLAUDE.md §12: every privileged action already writes an AuditLog row,
+    so daily audit-log volume is a free proxy for "is this company still
+    being used" — no new instrumentation needed. `last_activity_at` is the
+    single figure a super_admin actually scans for ("still operational?").
+    """
+
+    points: list[CompanyActivityPoint]
+    last_activity_at: Optional[datetime]
 
 
 class CompanyStatusChangeRequest(BaseModel):

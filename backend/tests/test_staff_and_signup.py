@@ -230,6 +230,131 @@ def test_double_deactivate_is_a_conflict(client, engine):
     assert second.status_code == 409
 
 
+def test_admin_can_reset_staff_password(client, engine):
+    seed_super_admin(engine, email="platform@rupha.example.com", password="platform-pass-1")
+    platform_token = _login(client, "platform@rupha.example.com", "platform-pass-1")
+    _create_company(client, platform_token)
+    admin_token = _login(client, "admin@a.example.com", "admin-pass-123")
+    branch = create_branch(client, admin_token)
+
+    staff = client.post(
+        "/staff",
+        json={
+            "email": "credit@a.example.com",
+            "password": "credit-pass-1",
+            "full_name": "Credit One",
+            "role": "credit_officer",
+            "branch_id": branch["id"],
+        },
+        headers=_auth_headers(admin_token),
+    ).json()
+
+    resp = client.post(
+        f"/staff/{staff['id']}/reset-password",
+        json={"new_password": "brand-new-pass-1"},
+        headers=_auth_headers(admin_token),
+    )
+    assert resp.status_code == 200, resp.text
+
+    old_login = client.post("/auth/login", json={"email": "credit@a.example.com", "password": "credit-pass-1"})
+    assert old_login.status_code == 401
+    new_login = client.post("/auth/login", json={"email": "credit@a.example.com", "password": "brand-new-pass-1"})
+    assert new_login.status_code == 200
+
+    audit = client.get("/admin/audit-log", headers=_auth_headers(admin_token)).json()
+    assert any(entry["action"] == "staff.password_reset" for entry in audit)
+
+
+def test_admin_cannot_reset_a_customers_password(client, engine):
+    """Explicit scope decision: staff-only, never a customer, via this route."""
+    from sqlmodel import Session, select
+
+    from app.models import User
+    from app.tenancy import tenant_context
+
+    seed_super_admin(engine, email="platform@rupha.example.com", password="platform-pass-1")
+    platform_token = _login(client, "platform@rupha.example.com", "platform-pass-1")
+    company = _create_company(client, platform_token)
+    admin_token = _login(client, "admin@a.example.com", "admin-pass-123")
+
+    client.post(
+        "/signup",
+        json={
+            "signup_code": company["signup_code"],
+            "email": "customer@a.example.com",
+            "password": "customer-pass-1",
+            "full_name": "Customer One",
+        },
+    )
+    with Session(engine) as session:
+        with tenant_context(company["id"]):
+            customer_id = session.exec(select(User).where(User.email == "customer@a.example.com")).first().id
+
+    resp = client.post(
+        f"/staff/{customer_id}/reset-password",
+        json={"new_password": "brand-new-pass-1"},
+        headers=_auth_headers(admin_token),
+    )
+    assert resp.status_code == 404
+
+
+def test_system_administrator_cannot_reset_another_companys_staff_password(client, engine):
+    seed_super_admin(engine, email="platform@rupha.example.com", password="platform-pass-1")
+    platform_token = _login(client, "platform@rupha.example.com", "platform-pass-1")
+    _create_company(client, platform_token, "Company A", "admin@a.example.com")
+    _create_company(client, platform_token, "Company B", "admin@b.example.com")
+    admin_a_token = _login(client, "admin@a.example.com", "admin-pass-123")
+    admin_b_token = _login(client, "admin@b.example.com", "admin-pass-123")
+    branch_b = create_branch(client, admin_b_token)
+
+    staff_b = client.post(
+        "/staff",
+        json={
+            "email": "credit@b.example.com",
+            "password": "credit-pass-1",
+            "full_name": "B Credit",
+            "role": "credit_officer",
+            "branch_id": branch_b["id"],
+        },
+        headers=_auth_headers(admin_b_token),
+    ).json()
+
+    resp = client.post(
+        f"/staff/{staff_b['id']}/reset-password",
+        json={"new_password": "brand-new-pass-1"},
+        headers=_auth_headers(admin_a_token),
+    )
+    assert resp.status_code == 404
+
+
+def test_non_admin_cannot_reset_staff_passwords(client, engine):
+    seed_super_admin(engine, email="platform@rupha.example.com", password="platform-pass-1")
+    platform_token = _login(client, "platform@rupha.example.com", "platform-pass-1")
+    _create_company(client, platform_token)
+    admin_token = _login(client, "admin@a.example.com", "admin-pass-123")
+    branch = create_branch(client, admin_token)
+
+    staff = client.post(
+        "/staff",
+        json={
+            "email": "credit@a.example.com",
+            "password": "credit-pass-1",
+            "full_name": "Credit One",
+            "role": "credit_officer",
+            "branch_id": branch["id"],
+        },
+        headers=_auth_headers(admin_token),
+    ).json()
+    staff_token = _login(client, "credit@a.example.com", "credit-pass-1")
+
+    resp = client.post(
+        f"/staff/{staff['id']}/reset-password",
+        json={"new_password": "brand-new-pass-1"},
+        headers=_auth_headers(staff_token),
+    )
+    assert resp.status_code == 403
+
+
 def test_system_administrator_cannot_deactivate_another_companys_staff(client, engine):
     seed_super_admin(engine, email="platform@rupha.example.com", password="platform-pass-1")
     platform_token = _login(client, "platform@rupha.example.com", "platform-pass-1")

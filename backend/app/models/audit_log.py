@@ -33,6 +33,11 @@ class AuditAction(str, enum.Enum):
     APPLICATION_RAPID_SUBMISSION = "application.rapid_submission"
     LOAN_DISBURSE = "loan.disburse"
     EXPENSE_CREATE = "expense.create"
+    GUARANTOR_ADD = "guarantor.add"
+    GUARANTOR_VERIFY = "guarantor.verify"
+    SECURITY_ADD = "security.add"
+    MFA_ENABLE = "mfa.enable"
+    MFA_DISABLE = "mfa.disable"
     LOAN_MARK_DEFAULTED = "loan.mark_defaulted"
     LOAN_REPAY = "loan.repay"
     LOAN_PENALTY_APPLIED = "loan.penalty_applied"
@@ -44,6 +49,11 @@ class AuditAction(str, enum.Enum):
     COMPANY_SUSPEND = "company.suspend"
     COMPANY_REACTIVATE = "company.reactivate"
     COMPANY_UPDATE_PROFILE = "company.update_profile"
+    LOAN_PRODUCT_CREATE = "loan_product.create"
+    LOAN_PRODUCT_DELETE = "loan_product.delete"
+    USER_PASSWORD_RESET = "user.password_reset"
+    STAFF_PASSWORD_RESET = "staff.password_reset"
+    APPLICATION_SUBMIT_FOR_CUSTOMER = "application.submit_for_customer"
 
 
 class AuditLog(TenantMixin, table=True):

@@ -13,3 +13,14 @@ export interface TokenResponse {
   role: string;
   company_id: number | null;
 }
+
+// CLAUDE.md §4/MFA: returned by POST /auth/login instead of TokenResponse
+// when the account has MFA enabled.
+export interface MfaRequiredResponse {
+  mfa_required: true;
+  mfa_token: string;
+}
+
+export function isMfaRequired(response: TokenResponse | MfaRequiredResponse): response is MfaRequiredResponse {
+  return "mfa_required" in response && response.mfa_required === true;
+}

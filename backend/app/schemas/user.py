@@ -25,6 +25,25 @@ class StaffCreateRequest(BaseModel):
     branch_id: Optional[int] = None
 
 
+class StaffPasswordResetRequest(BaseModel):
+    """system_administrator resetting one of their own staff's forgotten
+    password — no old-password confirmation (that's the whole point of an
+    admin-assisted reset), staff only, same-company only (enforced in the
+    router, same tenant-scoped lookup as deactivate/reactivate)."""
+
+    new_password: str = Field(min_length=8)
+
+
+class PlatformPasswordResetRequest(BaseModel):
+    """super_admin resetting ANY user's password (any company, any role) —
+    the one deliberate cross-tenant surface, same as every other
+    /platform/... route. Reason is required, same convention as every other
+    platform-tier action (CLAUDE.md §6)."""
+
+    new_password: str = Field(min_length=8)
+    reason: str = Field(min_length=1)
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

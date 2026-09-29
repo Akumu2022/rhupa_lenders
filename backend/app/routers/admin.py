@@ -3,7 +3,8 @@ audit log" is the first piece; applications/KYC/loans/products/portfolio
 oversight land here too as they ship.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,8 +16,10 @@ from ..audit import write_audit
 from ..db import get_session
 from ..db_helpers import get_or_404
 from ..deps import require_role
+from ..loan_calculation import generate_schedule
 from ..loan_delinquency import sync_loan_delinquency
 from ..portfolio import compute_portfolio_summary, compute_portfolio_trend
+from ..user_stats import compute_user_counts
 from ..models import (
     ApplicationStatus,
     AuditAction,
@@ -29,10 +32,12 @@ from ..models import (
     LoanProduct,
     LoanStatus,
     Profile,
+    RepaymentSchedule,
     User,
     UserRole,
 )
 from ..schemas.admin import (
+    AdminLoanDetailResponse,
     AdminLoanProductResponse,
     AdminLoanResponse,
     ApplicationOverrideRequest,
@@ -41,13 +46,18 @@ from ..schemas.admin import (
     BranchResponse,
     BranchUpdateRequest,
     KYCOverrideRequest,
+    LoanCalculatorRequest,
+    LoanCalculatorResponse,
+    LoanProductCreateRequest,
     LoanProductUpdateRequest,
     PortfolioSummaryResponse,
     PortfolioTrendPoint,
     PortfolioTrendResponse,
+    UserSummaryResponse,
 )
 from ..schemas.compliance import ComplianceProfileResponse
 from ..schemas.credit import CreditApplicationResponse, LoanApprovalResponse, LoanResponse
+from ..schemas.loan import RepaymentInstallmentResponse
 from .compliance import _to_response as _profile_to_response
 from .credit import _row_to_response as _application_row_to_response
 from .credit import _to_response as _application_to_response
@@ -70,6 +80,25 @@ def get_audit_log(
         session.exec(
             select(AuditLog).order_by(AuditLog.created_at.desc()).limit(_AUDIT_LOG_LIMIT)
         ).all()
+    )
+
+
+@router.get("/users/summary", response_model=UserSummaryResponse)
+def get_user_summary(
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> UserSummaryResponse:
+    """Staff-vs-customer counts for the Users overview page. No explicit
+    company_id filter — the central tenant mechanism already scopes this
+    request to the admin's own company (CLAUDE.md §5)."""
+    counts = compute_user_counts(session)
+    return UserSummaryResponse(
+        staff_total=counts.staff_total,
+        staff_active=counts.staff_active,
+        staff_inactive=counts.staff_inactive,
+        customer_total=counts.customer_total,
+        customer_active=counts.customer_active,
+        customer_inactive=counts.customer_inactive,
     )
 
 
@@ -220,6 +249,139 @@ def get_all_loans(
     ]
 
 
+@router.post("/products", response_model=AdminLoanProductResponse, status_code=status.HTTP_201_CREATED)
+def create_product(
+    body: LoanProductCreateRequest,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> LoanProduct:
+    """CLAUDE.md §19: products are config rows an admin authors, not a fixed
+    hard-coded catalog — the seeded default 3 (loan_seed.py) are just the
+    starting point, not the ceiling."""
+    if body.min_amount > body.max_amount:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="min_amount cannot exceed max_amount")
+
+    product = LoanProduct(
+        company_id=admin.company_id,
+        name=body.name,
+        description=body.description,
+        min_amount=body.min_amount,
+        max_amount=body.max_amount,
+        interest_rate=body.interest_rate,
+        repayment_period_days=body.repayment_period_days,
+        interest_model=InterestModel(body.interest_model),
+        installment_count=body.installment_count,
+        penalty_rate=body.penalty_rate,
+        grace_period_days=body.grace_period_days,
+        penalty_cap_ratio=body.penalty_cap_ratio,
+        branch_manager_delegated_limit=body.branch_manager_delegated_limit,
+        requires_guarantor=body.requires_guarantor,
+    )
+    session.add(product)
+    session.flush()
+    write_audit(
+        session,
+        actor=admin,
+        action=AuditAction.LOAN_PRODUCT_CREATE.value,
+        entity_type="LoanProduct",
+        entity_id=product.id,
+        reason=f"name={body.name}",
+        company_id=admin.company_id,
+    )
+    session.commit()
+    session.refresh(product)
+    return product
+
+
+@router.post("/loans/calculator", response_model=LoanCalculatorResponse)
+def calculate_loan(
+    body: LoanCalculatorRequest,
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> LoanCalculatorResponse:
+    """CLAUDE.md §23: frontend never computes real money — this calls the
+    exact same generate_schedule() dispatcher the real approval flow uses,
+    but writes nothing to the database. Pure preview, no Loan/RepaymentSchedule
+    rows, no session dependency needed at all."""
+    schedule = generate_schedule(
+        principal=body.principal,
+        rate_percent=body.interest_rate,
+        interest_model=InterestModel(body.interest_model),
+        term_days=body.term_days,
+        installment_count=body.installment_count,
+        start_date=body.start_date or date.today(),
+    )
+    return LoanCalculatorResponse(
+        principal=body.principal,
+        total_interest=schedule.total_interest,
+        total_repayable=schedule.total_repayable,
+        schedule=[
+            RepaymentInstallmentResponse(
+                id=installment.installment_number,  # nothing persisted — no real id to give
+                installment_number=installment.installment_number,
+                due_date=installment.due_date,
+                amount_due=installment.amount_due,
+                amount_paid=Decimal("0.00"),
+                principal_component=installment.principal_component,
+                interest_component=installment.interest_component,
+                is_paid=False,
+            )
+            for installment in schedule.installments
+        ],
+    )
+
+
+@router.get("/loans/{loan_id}", response_model=AdminLoanDetailResponse)
+def get_loan_detail(
+    loan_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> AdminLoanDetailResponse:
+    """Staff-facing loan detail — the full amortization breakdown
+    (RepaymentSchedule already carries it, generated at approval time) that
+    customers already see on /loans/me, now visible to staff too. No editing
+    of the live loan here — this is read-only, the ledger stays the ledger."""
+    sync_loan_delinquency(session)
+    loan = get_or_404(session, Loan, loan_id, detail="Loan not found")
+    customer = session.get(User, loan.customer_id)
+    product = session.get(LoanProduct, loan.loan_product_id)
+    if customer is None or product is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found")
+
+    schedule = session.exec(
+        select(RepaymentSchedule)
+        .where(RepaymentSchedule.loan_id == loan_id)
+        .order_by(RepaymentSchedule.installment_number)
+    ).all()
+
+    return AdminLoanDetailResponse(
+        id=loan.id,
+        customer_full_name=customer.full_name,
+        customer_email=customer.email,
+        loan_product_name=product.name,
+        principal=loan.principal,
+        interest_rate=loan.interest_rate,
+        total_repayable=loan.total_repayable,
+        penalties_accrued=loan.penalties_accrued,
+        outstanding_balance=loan.outstanding_balance,
+        status=loan.status.value,
+        disbursed_at=loan.disbursed_at,
+        created_at=loan.created_at,
+        schedule=[
+            RepaymentInstallmentResponse(
+                id=installment.id,
+                installment_number=installment.installment_number,
+                due_date=installment.due_date,
+                amount_due=installment.amount_due,
+                amount_paid=installment.amount_paid,
+                principal_component=installment.principal_component,
+                interest_component=installment.interest_component,
+                is_paid=installment.is_paid,
+            )
+            for installment in schedule
+        ],
+    )
+
+
 @router.get("/products", response_model=list[AdminLoanProductResponse])
 def get_all_products(
     session: Session = Depends(get_session),
@@ -263,6 +425,43 @@ def update_product(
     session.commit()
     session.refresh(product)
     return product
+
+
+@router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_product(
+    product_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> None:
+    """A real delete — but only ever for a product no application or loan has
+    ever referenced. Once one exists, deleting the row would either violate
+    the foreign key or (if the DB allowed it) silently orphan real financial
+    history — neither is acceptable in this app (CLAUDE.md §12/§13). A
+    product that's actually been used stays reachable only through the
+    existing is_active toggle, which is exactly the "retire it" lever for
+    that case."""
+    product = get_or_404(session, LoanProduct, product_id, detail="Product not found")
+
+    in_use = session.exec(
+        select(LoanApplication.id).where(LoanApplication.loan_product_id == product_id)
+    ).first() or session.exec(select(Loan.id).where(Loan.loan_product_id == product_id)).first()
+    if in_use is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This product has already been used on an application or loan and can't be deleted — deactivate it instead.",
+        )
+
+    write_audit(
+        session,
+        actor=admin,
+        action=AuditAction.LOAN_PRODUCT_DELETE.value,
+        entity_type="LoanProduct",
+        entity_id=product_id,
+        reason=f"name={product.name}",
+        company_id=admin.company_id,
+    )
+    session.delete(product)
+    session.commit()
 
 
 @router.get("/portfolio/summary", response_model=PortfolioSummaryResponse)

@@ -5,6 +5,7 @@ import { AppShell } from "../../components/AppShell";
 import { Badge, Banner, Button, Card, PageHeader, TextInput } from "../../components/ui";
 import { DataTable } from "../../components/DataTable";
 import { Drawer } from "../../components/Drawer";
+import { GuarantorsCollateralPanel } from "../../components/GuarantorsCollateralPanel";
 import { useToast } from "../../components/toast";
 import type { CreditApplicationResponse } from "../../schemas/credit";
 import type { BranchQueueItemResponse } from "../../schemas/branchManager";
@@ -72,6 +73,10 @@ function DecisionDrawer({
               This amount is above your delegated limit — you can only escalate it to the loan vetting committee.
             </Banner>
           ) : null}
+
+          <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+            <GuarantorsCollateralPanel applicationId={application.id} />
+          </div>
 
           <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
             <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">

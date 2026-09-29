@@ -16,8 +16,10 @@ from .routers import (
     credit,
     customers,
     finance,
+    guarantors,
     loans,
     management,
+    mfa,
     platform,
     profile,
     signup,
@@ -38,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(mfa.router)
 app.include_router(admin.router)
 app.include_router(company_info.router)
 app.include_router(platform.router)
@@ -46,6 +49,7 @@ app.include_router(signup.router)
 app.include_router(profile.router)
 app.include_router(compliance.router)
 app.include_router(customers.router)
+app.include_router(guarantors.router)
 app.include_router(loans.router)
 app.include_router(credit.router)
 app.include_router(transactions.router)

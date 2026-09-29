@@ -17,6 +17,16 @@ export function getStoredTheme(): Theme {
 
 function applyTheme(theme: Theme): void {
   document.documentElement.classList.toggle("dark", theme === "dark");
+  // index.html sets `color-scheme: light dark` on <html>, which lets the
+  // browser pick native-control theming (a <select>'s option popup,
+  // scrollbars) from the OS preference — independent of this app's manual
+  // .dark class. When the two disagree (dark mode forced on while the OS is
+  // still light, or vice versa), a <select>'s popup renders with the OS's
+  // colors while this app's own dark: text classes still apply, producing
+  // light-text-on-light-popup (or the reverse) — effectively invisible
+  // options. Setting color-scheme explicitly here pins native controls to
+  // the SAME theme this app is actually showing.
+  document.documentElement.style.colorScheme = theme;
 }
 
 /** Reads/writes the manual light/dark override (CLAUDE.md §20: dark mode is

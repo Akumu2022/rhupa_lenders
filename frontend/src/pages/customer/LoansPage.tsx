@@ -3,6 +3,7 @@ import { useState } from "react";
 import { apiRequest } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
 import { Badge, Banner, Button, Card, PageHeader, UsageMeter } from "../../components/ui";
+import { AmortizationTable } from "../../components/AmortizationTable";
 import { DataTable } from "../../components/DataTable";
 import { Drawer } from "../../components/Drawer";
 import type { CustomerCreditSummaryResponse, CustomerLoanResponse } from "../../schemas/loan";
@@ -37,32 +38,7 @@ function ScheduleDrawer({ loan, onClose }: { loan: CustomerLoanResponse | null; 
             total={Number(loan.total_repayable)}
             formatValue={(v) => `KES ${v.toLocaleString()}`}
           />
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800 dark:text-slate-500">
-                <th className="py-2 font-medium">#</th>
-                <th className="py-2 font-medium">Due date</th>
-                <th className="py-2 font-medium">Principal</th>
-                <th className="py-2 font-medium">Interest</th>
-                <th className="py-2 font-medium">Amount due</th>
-                <th className="py-2 font-medium">Paid</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loan.schedule.map((installment) => (
-                <tr key={installment.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                  <td className="py-2 text-slate-700 dark:text-slate-300">{installment.installment_number}</td>
-                  <td className="py-2 text-slate-700 dark:text-slate-300">{installment.due_date}</td>
-                  <td className="py-2 text-slate-500 dark:text-slate-400">KES {installment.principal_component}</td>
-                  <td className="py-2 text-slate-500 dark:text-slate-400">KES {installment.interest_component}</td>
-                  <td className="py-2 font-medium text-slate-900 dark:text-slate-100">KES {installment.amount_due}</td>
-                  <td className="py-2 text-slate-700 dark:text-slate-300">
-                    {installment.is_paid ? "Yes" : `KES ${installment.amount_paid}`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <AmortizationTable schedule={loan.schedule} />
           <p className="text-xs text-slate-400 dark:text-slate-500">
             Principal is the amount borrowed; interest is the lender's fee for the loan term — together they make up
             the amount due for each installment.

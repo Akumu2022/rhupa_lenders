@@ -40,3 +40,11 @@ class User(TenantMixin, table=True):
     # CLAUDE.md §6: checked in the same central gate as company-suspension status,
     # on every request — a deactivated staff account loses access immediately.
     is_active: bool = Field(default=True)
+
+    # TOTP MFA (staff roles only — customers are never required to enroll).
+    # mfa_secret stores the base32 TOTP secret in plaintext once confirmed —
+    # same at-rest posture as hashed_password's own known-gap precedent
+    # (CLAUDE.md §5 documents the analogous Postgres-RLS gap); flagged here,
+    # not silently accepted.
+    mfa_secret: Optional[str] = Field(default=None)
+    mfa_enabled: bool = Field(default=False)

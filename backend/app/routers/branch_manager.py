@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, update
 from sqlmodel import Session, select
 
-from ..application_review import check_no_self_approval, write_review_stage
+from ..application_review import check_no_self_approval, require_guarantor_if_needed, write_review_stage
 from ..audit import write_audit
 from ..db import get_session
 from ..deps import require_role
@@ -183,6 +183,7 @@ def decide_branch_application(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Amount exceeds your delegated limit — escalate to the committee instead",
             )
+        require_guarantor_if_needed(session, application_id, product)
         result = session.execute(
             update(LoanApplication)
             .where(LoanApplication.id == application_id, LoanApplication.status == ApplicationStatus.pending_branch_review)

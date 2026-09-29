@@ -4,11 +4,13 @@ loans, products, and the read-only portfolio aggregate. All company-scoped
 """
 
 import io
+from datetime import date
 from decimal import Decimal
 
 from sqlmodel import Session, select
 
-from app.models import Loan, User
+from app.loan_calculation import generate_schedule
+from app.models import InterestModel, Loan, User
 from app.tenancy import tenant_context
 from tests.conftest import create_branch, seed_super_admin
 
@@ -303,3 +305,251 @@ def test_portfolio_trend_is_tenant_isolated(client, engine):
     resp = client.get("/admin/portfolio/trend", headers=_auth_headers(ctx_a["admin_token"]))
     today_point = resp.json()["points"][-1]
     assert today_point["disbursed_amount"] == "5000.00"
+
+
+def test_user_summary_counts_staff_and_customers(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    resp = client.get("/admin/users/summary", headers=_auth_headers(ctx["admin_token"]))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # system_administrator + credit_officer + branch_manager + cashier_finance_officer = 4 staff, all active.
+    assert body["staff_total"] == 4
+    assert body["staff_active"] == 4
+    assert body["staff_inactive"] == 0
+    assert body["customer_total"] == 1
+    assert body["customer_active"] == 1
+
+
+def test_user_summary_reflects_deactivated_staff(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    staff = client.get("/staff", headers=_auth_headers(ctx["admin_token"])).json()
+    officer = next(s for s in staff if s["email"].startswith("compliance@"))
+    client.post(f"/staff/{officer['id']}/deactivate", headers=_auth_headers(ctx["admin_token"]))
+
+    resp = client.get("/admin/users/summary", headers=_auth_headers(ctx["admin_token"]))
+    body = resp.json()
+    assert body["staff_active"] == 3
+    assert body["staff_inactive"] == 1
+
+
+def test_user_summary_is_tenant_isolated(client, engine):
+    ctx_a = _setup_disbursed_loan(client, engine, company_name="Company A")
+    _setup_disbursed_loan(client, engine, company_name="Company B", platform_token=ctx_a["platform_token"])
+
+    resp = client.get("/admin/users/summary", headers=_auth_headers(ctx_a["admin_token"]))
+    assert resp.json()["staff_total"] == 4
+    assert resp.json()["customer_total"] == 1
+
+
+def test_admin_can_create_product(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    resp = client.post(
+        "/admin/products",
+        json={
+            "name": "Asset Finance",
+            "description": "Longer-term asset-backed loan",
+            "min_amount": "10000.00",
+            "max_amount": "500000.00",
+            "interest_rate": "10.00",
+            "repayment_period_days": 180,
+            "interest_model": "reducing_balance",
+            "installment_count": 6,
+        },
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["name"] == "Asset Finance"
+    assert body["interest_model"] == "reducing_balance"
+    assert body["installment_count"] == 6
+
+    names = {p["name"] for p in client.get("/admin/products", headers=_auth_headers(ctx["admin_token"])).json()}
+    assert "Asset Finance" in names
+
+    audit = client.get("/admin/audit-log", headers=_auth_headers(ctx["admin_token"])).json()
+    assert any(entry["action"] == "loan_product.create" for entry in audit)
+
+
+def test_create_product_rejects_min_above_max(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    resp = client.post(
+        "/admin/products",
+        json={
+            "name": "Broken Product",
+            "min_amount": "999999.00",
+            "max_amount": "1000.00",
+            "interest_rate": "5.00",
+            "repayment_period_days": 30,
+        },
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert resp.status_code == 400
+
+
+def test_non_admin_cannot_create_product(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    resp = client.post(
+        "/admin/products",
+        json={
+            "name": "Sneaky Product",
+            "min_amount": "1000.00",
+            "max_amount": "5000.00",
+            "interest_rate": "5.00",
+            "repayment_period_days": 30,
+        },
+        headers=_auth_headers(ctx["credit_token"]),
+    )
+    assert resp.status_code == 403
+
+
+def test_admin_can_delete_an_unused_product(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    created = client.post(
+        "/admin/products",
+        json={
+            "name": "Never Used",
+            "min_amount": "1000.00",
+            "max_amount": "5000.00",
+            "interest_rate": "5.00",
+            "repayment_period_days": 30,
+        },
+        headers=_auth_headers(ctx["admin_token"]),
+    ).json()
+
+    resp = client.delete(f"/admin/products/{created['id']}", headers=_auth_headers(ctx["admin_token"]))
+    assert resp.status_code == 204, resp.text
+
+    names = {p["name"] for p in client.get("/admin/products", headers=_auth_headers(ctx["admin_token"])).json()}
+    assert "Never Used" not in names
+
+    audit = client.get("/admin/audit-log", headers=_auth_headers(ctx["admin_token"])).json()
+    assert any(entry["action"] == "loan_product.delete" for entry in audit)
+
+
+def test_admin_cannot_delete_a_product_already_used_by_a_loan(client, engine):
+    """CLAUDE.md §12/§13: deleting a referenced product would either violate
+    the FK or silently orphan real financial history — neither is
+    acceptable. is_active is the correct "retire it" lever once a product
+    has actually been used."""
+    ctx = _setup_disbursed_loan(client, engine)  # uses "Salary Advance"
+    products = client.get("/admin/products", headers=_auth_headers(ctx["admin_token"])).json()
+    used_product = next(p for p in products if p["name"] == "Salary Advance")
+
+    resp = client.delete(f"/admin/products/{used_product['id']}", headers=_auth_headers(ctx["admin_token"]))
+    assert resp.status_code == 409, resp.text
+
+    names = {p["name"] for p in client.get("/admin/products", headers=_auth_headers(ctx["admin_token"])).json()}
+    assert "Salary Advance" in names  # still there
+
+
+def test_admin_cannot_delete_a_product_with_only_an_application(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    products = client.get("/admin/products", headers=_auth_headers(ctx["admin_token"])).json()
+    business_loan = next(p for p in products if p["name"] == "Business Loan")
+
+    apply_resp = client.post(
+        "/applications",
+        json={"loan_product_id": business_loan["id"], "amount_requested": "10000.00"},
+        headers=_auth_headers(ctx["customer_token"]),
+    )
+    # The customer already has a pending application from _setup_disbursed_loan's
+    # own approved+disbursed one only if still pending — here it's already
+    # approved/disbursed, so a second application is allowed.
+    assert apply_resp.status_code == 201, apply_resp.text
+
+    resp = client.delete(f"/admin/products/{business_loan['id']}", headers=_auth_headers(ctx["admin_token"]))
+    assert resp.status_code == 409
+
+
+def test_non_admin_cannot_delete_product(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    products = client.get("/admin/products", headers=_auth_headers(ctx["admin_token"])).json()
+    product_id = products[0]["id"]
+
+    resp = client.delete(f"/admin/products/{product_id}", headers=_auth_headers(ctx["credit_token"]))
+    assert resp.status_code == 403
+
+
+def test_cannot_delete_another_companys_product(client, engine):
+    ctx_a = _setup_disbursed_loan(client, engine, company_name="Company A")
+    ctx_b = _setup_disbursed_loan(client, engine, company_name="Company B", platform_token=ctx_a["platform_token"])
+    products_b = client.get("/admin/products", headers=_auth_headers(ctx_b["admin_token"])).json()
+
+    resp = client.delete(f"/admin/products/{products_b[0]['id']}", headers=_auth_headers(ctx_a["admin_token"]))
+    assert resp.status_code == 404
+
+
+def test_loan_calculator_matches_generate_schedule_and_writes_nothing(client, engine):
+    """CLAUDE.md §23: the calculator is a pure preview over the exact same
+    dispatcher the real approval flow uses, with zero DB writes."""
+    ctx = _setup_disbursed_loan(client, engine)
+    before_count = None
+    with Session(engine) as session:
+        with tenant_context(ctx["company"]["id"]):
+            before_count = len(session.exec(select(Loan)).all())
+
+    resp = client.post(
+        "/admin/loans/calculator",
+        json={
+            "principal": "10000.00",
+            "interest_rate": "8.00",
+            "interest_model": "reducing_balance",
+            "term_days": 90,
+            "installment_count": 3,
+            "start_date": "2026-01-01",
+        },
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["schedule"]) == 3
+
+    expected = generate_schedule(
+        principal=Decimal("10000.00"),
+        rate_percent=Decimal("8.00"),
+        interest_model=InterestModel.reducing_balance,
+        term_days=90,
+        installment_count=3,
+        start_date=date(2026, 1, 1),
+    )
+    assert Decimal(body["total_interest"]) == expected.total_interest
+    assert Decimal(body["total_repayable"]) == expected.total_repayable
+    for got, want in zip(body["schedule"], expected.installments):
+        assert Decimal(got["principal_component"]) == want.principal_component
+        assert Decimal(got["interest_component"]) == want.interest_component
+        assert got["is_paid"] is False
+
+    with Session(engine) as session:
+        with tenant_context(ctx["company"]["id"]):
+            after_count = len(session.exec(select(Loan)).all())
+    assert after_count == before_count  # nothing persisted
+
+
+def test_loan_calculator_requires_system_administrator(client, engine):
+    ctx = _setup_disbursed_loan(client, engine)
+    resp = client.post(
+        "/admin/loans/calculator",
+        json={"principal": "1000.00", "interest_rate": "5.00", "term_days": 30},
+        headers=_auth_headers(ctx["credit_token"]),
+    )
+    assert resp.status_code == 403
+
+
+def test_admin_loan_detail_shows_full_schedule(client, engine):
+    ctx = _setup_disbursed_loan(client, engine, amount="5000.00")
+    resp = client.get(f"/admin/loans/{ctx['loan_id']}", headers=_auth_headers(ctx["admin_token"]))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["customer_full_name"] == "Customer One"
+    assert body["principal"] == "5000.00"
+    assert len(body["schedule"]) >= 1
+    installment = body["schedule"][0]
+    assert set(installment) >= {"due_date", "amount_due", "amount_paid", "principal_component", "interest_component", "is_paid"}
+
+
+def test_admin_loan_detail_is_tenant_isolated(client, engine):
+    ctx_a = _setup_disbursed_loan(client, engine, company_name="Company A")
+    ctx_b = _setup_disbursed_loan(client, engine, company_name="Company B", platform_token=ctx_a["platform_token"])
+
+    resp = client.get(f"/admin/loans/{ctx_b['loan_id']}", headers=_auth_headers(ctx_a["admin_token"]))
+    assert resp.status_code == 404

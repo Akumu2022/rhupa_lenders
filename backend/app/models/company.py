@@ -1,4 +1,5 @@
 import enum
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -42,3 +43,8 @@ class Company(SQLModel, table=True):
     # never read-then-blindly-written. Starts at 1, not 0, so the first
     # generated number is CUST-{company_id:04d}-000001.
     next_customer_sequence: int = Field(default=1)
+
+    # Added after several companies already existed (see the migration) —
+    # pre-existing rows show the migration's timestamp, not their true
+    # original creation date, which was never captured before this field.
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

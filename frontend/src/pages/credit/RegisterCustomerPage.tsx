@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { apiRequestMultipart, buildMultipartForm, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
 import { FileDropzone } from "../../components/FileDropzone";
-import { Banner, Button, Card, Field, PageHeader, Select, SectionLabel, TextInput } from "../../components/ui";
+import { Banner, Button, Card, Field, PageHeader, PasswordInput, Select, SectionLabel, TextInput } from "../../components/ui";
 import {
   customerRegisterSchema,
   EMPLOYMENT_STATUS_OPTIONS,
@@ -86,7 +86,7 @@ export function RegisterCustomerPage() {
                 <TextInput type="email" {...register("email")} />
               </Field>
               <Field label="Password" error={errors.password?.message}>
-                <TextInput type="password" {...register("password")} />
+                <PasswordInput {...register("password")} />
               </Field>
               <Field label="Full name" error={errors.full_name?.message}>
                 <TextInput {...register("full_name")} />

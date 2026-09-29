@@ -19,7 +19,7 @@ from ..customer_registration import compute_business_figures, next_customer_numb
 from ..db import get_session
 from ..deps import require_role
 from ..kyc_storage import save_kyc_document
-from ..models import AuditAction, BusinessAssessment, Company, KYCStatus, Profile, Referee, User, UserRole
+from ..models import AuditAction, BusinessAssessment, Company, KYCStatus, LoanApplication, Profile, Referee, User, UserRole
 from ..schemas.compliance import ComplianceProfileResponse
 from ..schemas.customers import (
     BusinessAssessmentRequest,
@@ -29,6 +29,7 @@ from ..schemas.customers import (
     RefereeInput,
     RefereeResponse,
 )
+from ..schemas.loan import LoanApplicationResponse
 from ..security import hash_password
 from .compliance import _to_response as _profile_to_response
 
@@ -178,6 +179,30 @@ def get_customer_detail(
 ) -> ComplianceProfileResponse:
     customer, profile = _get_customer_profile(session, customer_id)
     return _profile_to_response(profile, customer)
+
+
+@router.get("/{customer_id}/applications", response_model=list[LoanApplicationResponse])
+def list_customer_applications(
+    customer_id: int,
+    session: Session = Depends(get_session),
+    staff: User = Depends(require_role(*_VIEW_ROLES)),
+) -> list[LoanApplication]:
+    """Backs the shared customer-profile page's Applications section (visible
+    to all three viewer roles, read-only) and the credit officer's
+    pending-application check before offering to apply on this customer's
+    behalf. CLAUDE.md §25: credit_officer/branch_manager stay within their
+    own branch — same scope as `GET /customers` — system_administrator sees
+    any customer in the company (tenant scope already covers that)."""
+    customer, _ = _get_customer_profile(session, customer_id)
+    if staff.role in (UserRole.credit_officer, UserRole.branch_manager) and customer.branch_id != staff.branch_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+    return list(
+        session.exec(
+            select(LoanApplication)
+            .where(LoanApplication.customer_id == customer_id)
+            .order_by(LoanApplication.created_at.desc())
+        ).all()
+    )
 
 
 @router.get("/{customer_id}/business-assessment", response_model=BusinessAssessmentResponse)

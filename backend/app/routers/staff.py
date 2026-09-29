@@ -13,7 +13,7 @@ from ..audit import write_audit
 from ..db import get_session
 from ..deps import require_role
 from ..models import AuditAction, Branch, User, UserRole
-from ..schemas.user import StaffCreateRequest, UserResponse
+from ..schemas.user import StaffCreateRequest, StaffPasswordResetRequest, UserResponse
 from ..security import hash_password
 
 router = APIRouter(prefix="/staff", tags=["staff"])
@@ -139,3 +139,33 @@ def reactivate_staff(
     admin: User = Depends(require_role(UserRole.system_administrator)),
 ) -> User:
     return _set_staff_active(staff_id=staff_id, active=True, action=AuditAction.STAFF_REACTIVATE.value, session=session, admin=admin)
+
+
+@router.post("/{staff_id}/reset-password", response_model=UserResponse)
+def reset_staff_password(
+    staff_id: int,
+    body: StaffPasswordResetRequest,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> User:
+    """system_administrator resetting a forgotten staff password — staff only
+    (never a customer, per the explicit scope decision), same-company only:
+    session.get is tenant-scoped, so a staff_id from another company is
+    indistinguishable from "doesn't exist" (CLAUDE.md §5)."""
+    staff = session.get(User, staff_id)
+    if staff is None or staff.role not in _STAFF_ROLES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff member not found")
+
+    staff.hashed_password = hash_password(body.new_password)
+    session.add(staff)
+    write_audit(
+        session,
+        actor=admin,
+        action=AuditAction.STAFF_PASSWORD_RESET.value,
+        entity_type="User",
+        entity_id=staff_id,
+        company_id=admin.company_id,
+    )
+    session.commit()
+    session.refresh(staff)
+    return staff

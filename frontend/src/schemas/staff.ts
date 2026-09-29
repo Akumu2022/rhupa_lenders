@@ -29,6 +29,12 @@ export const staffCreateSchema = z
   });
 export type StaffCreateInput = z.infer<typeof staffCreateSchema>;
 
+// Mirrors backend app/schemas/user.py::StaffPasswordResetRequest
+export const staffPasswordResetSchema = z.object({
+  new_password: z.string().min(8, "At least 8 characters"),
+});
+export type StaffPasswordResetInput = z.infer<typeof staffPasswordResetSchema>;
+
 export interface UserResponse {
   id: number;
   email: string;

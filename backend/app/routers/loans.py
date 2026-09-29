@@ -72,12 +72,14 @@ def list_loan_products(
     return list(session.exec(select(LoanProduct).where(LoanProduct.is_active.is_(True))).all())
 
 
-@router.post("/applications", response_model=LoanApplicationResponse, status_code=status.HTTP_201_CREATED)
-def submit_application(
-    body: LoanApplicationCreateRequest,
-    session: Session = Depends(get_session),
-    customer: User = Depends(require_role(UserRole.customer)),
+def _create_application(
+    session: Session, *, customer: User, product_id: int, amount_requested: Decimal, actor: User
 ) -> LoanApplication:
+    """Shared by the customer's own self-service submission and the credit
+    officer's assisted, on-behalf-of submission (CLAUDE.md §8: "the credit
+    officer... prepares the application") — `customer` is always the
+    applicant of record; `actor` is who's actually making this HTTP call and
+    is only ever different from `customer` on the officer-assisted path."""
     profile = session.exec(select(Profile).where(Profile.user_id == customer.id)).first()
     # CLAUDE.md rule #6: no unverified customer can apply — enforced here,
     # not just by disabling the button in the UI.
@@ -93,15 +95,16 @@ def submit_application(
         )
     ).first()
     if existing_pending is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You already have a pending application")
+        detail = "You already have a pending application" if actor.id == customer.id else "This customer already has a pending application"
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
     # session.get is tenant-scoped — a product id from another company comes
     # back None here, indistinguishable from "doesn't exist".
-    product = session.get(LoanProduct, body.loan_product_id)
+    product = session.get(LoanProduct, product_id)
     if product is None or not product.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Loan product not found")
 
-    if body.amount_requested < product.min_amount or body.amount_requested > product.max_amount:
+    if amount_requested < product.min_amount or amount_requested > product.max_amount:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Amount must be between {product.min_amount} and {product.max_amount}",
@@ -129,8 +132,8 @@ def submit_application(
     application = LoanApplication(
         customer_id=customer.id,
         loan_product_id=product.id,
-        amount_requested=body.amount_requested,
-        company_id=customer.company_id,  # from the authenticated customer, never the body
+        amount_requested=amount_requested,
+        company_id=customer.company_id,  # from the applicant, never the body
         branch_id=customer.branch_id,
         status=initial_status,
     )
@@ -149,9 +152,55 @@ def submit_application(
             is_anomaly=True,
         )
 
+    if actor.id != customer.id:
+        # A staff action changing state gets its own audit entry in the same
+        # change (CLAUDE.md §16) — the pure self-service path above writes
+        # nothing extra, unchanged from before this helper existed.
+        write_audit(
+            session,
+            actor=actor,
+            action=AuditAction.APPLICATION_SUBMIT_FOR_CUSTOMER.value,
+            entity_type="LoanApplication",
+            entity_id=application.id,
+            reason=f"submitted on behalf of {customer.email}",
+            company_id=actor.company_id,
+        )
+
     session.commit()
     session.refresh(application)
     return application
+
+
+@router.post("/applications", response_model=LoanApplicationResponse, status_code=status.HTTP_201_CREATED)
+def submit_application(
+    body: LoanApplicationCreateRequest,
+    session: Session = Depends(get_session),
+    customer: User = Depends(require_role(UserRole.customer)),
+) -> LoanApplication:
+    return _create_application(
+        session, customer=customer, product_id=body.loan_product_id, amount_requested=body.amount_requested, actor=customer
+    )
+
+
+@router.post("/customers/{customer_id}/applications", response_model=LoanApplicationResponse, status_code=status.HTTP_201_CREATED)
+def submit_application_for_customer(
+    customer_id: int,
+    body: LoanApplicationCreateRequest,
+    session: Session = Depends(get_session),
+    officer: User = Depends(require_role(UserRole.credit_officer)),
+) -> LoanApplication:
+    """CLAUDE.md §8: the credit officer prepares the application on the
+    customer's behalf — an assisted/in-branch path alongside (not replacing)
+    customer self-service above. session.get is tenant-scoped (§5) already;
+    the branch check below narrows further to "this officer's own branch",
+    the same scope their customer list (`GET /customers`) already uses."""
+    target = session.get(User, customer_id)
+    if target is None or target.role != UserRole.customer or target.branch_id != officer.branch_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
+    return _create_application(
+        session, customer=target, product_id=body.loan_product_id, amount_requested=body.amount_requested, actor=officer
+    )
 
 
 @router.get("/applications/me", response_model=list[LoanApplicationResponse])

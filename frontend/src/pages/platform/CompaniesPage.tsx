@@ -4,14 +4,36 @@ import { useEffect, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { apiRequest, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
-import { Badge, Banner, Button, Card, Field, PageHeader, SectionLabel, TextInput } from "../../components/ui";
+import {
+  Badge,
+  Banner,
+  Button,
+  Card,
+  Field,
+  PageHeader,
+  PasswordInput,
+  SectionLabel,
+  Sparkline,
+  StatCard,
+  TextInput,
+} from "../../components/ui";
 import { ColorField } from "../../components/ColorField";
 import { ImageFileField } from "../../components/FileDropzone";
 import { DataTable } from "../../components/DataTable";
 import { Drawer } from "../../components/Drawer";
 import { useToast } from "../../components/toast";
 import { useApiMutation } from "../../hooks/useApiMutation";
-import { companyCreateSchema, omitBlankFields, type CompanyCreateInput, type CompanyResponse } from "../../schemas/company";
+import {
+  companyCreateSchema,
+  omitBlankFields,
+  platformPasswordResetSchema,
+  type CompanyActivityResponse,
+  type CompanyCreateInput,
+  type CompanyDetailResponse,
+  type CompanyResponse,
+  type CompanyUserRow,
+  type PlatformPasswordResetInput,
+} from "../../schemas/company";
 
 function CreateCompanyDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -78,7 +100,7 @@ function CreateCompanyDrawer({ open, onClose }: { open: boolean; onClose: () => 
           <TextInput type="email" {...register("admin_email")} />
         </Field>
         <Field label="First admin's password" error={errors.admin_password?.message}>
-          <TextInput type="password" {...register("admin_password")} />
+          <PasswordInput {...register("admin_password")} />
         </Field>
 
         <SectionLabel>Profile &amp; branding (optional)</SectionLabel>
@@ -199,8 +221,159 @@ function SuspensionAction({ company }: { company: CompanyResponse }) {
   );
 }
 
+function ResetUserPasswordAction({ user }: { user: CompanyUserRow }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<PlatformPasswordResetInput>({ resolver: zodResolver(platformPasswordResetSchema) });
+
+  async function onSubmit(values: PlatformPasswordResetInput) {
+    setError(null);
+    try {
+      await apiRequest(`/platform/users/${user.id}/reset-password`, { method: "POST", body: values });
+      reset();
+      setOpen(false);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setOpen(true)}>
+        Reset password
+      </Button>
+    );
+  }
+
+  return (
+    <form className="space-y-2" onSubmit={handleSubmit(onSubmit)} noValidate>
+      <PasswordInput placeholder="New password" className="py-1 text-xs" {...register("new_password")} />
+      {errors.new_password ? <p className="text-xs text-rose-600 dark:text-rose-400">{errors.new_password.message}</p> : null}
+      <TextInput placeholder="Reason (required)" className="py-1 text-xs" {...register("reason")} />
+      {errors.reason ? <p className="text-xs text-rose-600 dark:text-rose-400">{errors.reason.message}</p> : null}
+      {error ? <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p> : null}
+      <div className="flex gap-2">
+        <Button type="submit" className="px-2 py-1 text-xs" disabled={isSubmitting}>
+          {isSubmitting ? "Resetting…" : "Confirm reset"}
+        </Button>
+        <Button type="button" variant="secondary" className="px-2 py-1 text-xs" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** Super_admin support screen for one company: staff/customer counts, a
+ * 30-day activity trend (free from the existing AuditLog — no new
+ * instrumentation, see app/routers/platform.py::get_company_activity), and
+ * the ability to reset any of this company's users' passwords if they're
+ * locked out. */
+function CompanyDetailDrawer({ companyId, onClose }: { companyId: number | null; onClose: () => void }) {
+  const detailQuery = useQuery({
+    queryKey: ["platform", "companies", companyId],
+    queryFn: () => apiRequest<CompanyDetailResponse>(`/platform/companies/${companyId}`),
+    enabled: companyId !== null,
+  });
+  const usersQuery = useQuery({
+    queryKey: ["platform", "companies", companyId, "users"],
+    queryFn: () => apiRequest<CompanyUserRow[]>(`/platform/companies/${companyId}/users`),
+    enabled: companyId !== null,
+  });
+  const activityQuery = useQuery({
+    queryKey: ["platform", "companies", companyId, "activity"],
+    queryFn: () => apiRequest<CompanyActivityResponse>(`/platform/companies/${companyId}/activity`),
+    enabled: companyId !== null,
+  });
+
+  const company = detailQuery.data;
+
+  return (
+    <Drawer open={companyId !== null} onClose={onClose} title={company ? company.name : "Company"}>
+      {company ? (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <Badge tone={company.status === "active" ? "success" : "danger"}>{company.status}</Badge>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Created {new Date(company.created_at).toLocaleDateString()}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label="Staff" value={company.users.staff_total} tone="brand" icon="users" />
+            <StatCard label="Customers" value={company.users.customer_total} tone="brand" icon="user" />
+            <StatCard label="Staff inactive" value={company.users.staff_inactive} tone="neutral" />
+            <StatCard label="Customers inactive" value={company.users.customer_inactive} tone="neutral" />
+          </div>
+
+          <div>
+            <SectionLabel>Activity (last 30 days)</SectionLabel>
+            {activityQuery.data ? (
+              activityQuery.data.points.some((p) => p.audit_log_count > 0) ? (
+                <>
+                  <Sparkline
+                    data={activityQuery.data.points.map((p) => p.audit_log_count)}
+                    showArea
+                    formatValue={(v) => `${v} action${v === 1 ? "" : "s"}`}
+                  />
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    {activityQuery.data.last_activity_at
+                      ? `Last activity ${new Date(activityQuery.data.last_activity_at).toLocaleString()}`
+                      : "No recorded activity yet."}
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  No activity in the last 30 days — this company may no longer be operational.
+                </p>
+              )
+            ) : null}
+          </div>
+
+          <div>
+            <SectionLabel>Users</SectionLabel>
+            <DataTable
+              columns={[
+                { key: "name", header: "Name", accessor: (u: CompanyUserRow) => u.full_name },
+                { key: "email", header: "Email", accessor: (u) => u.email },
+                {
+                  key: "role",
+                  header: "Role",
+                  accessor: (u) => u.role,
+                  render: (u) => <Badge tone="brand">{u.role.replace(/_/g, " ")}</Badge>,
+                },
+                {
+                  key: "status",
+                  header: "Status",
+                  accessor: (u) => (u.is_active ? "active" : "inactive"),
+                  render: (u) => <Badge tone={u.is_active ? "success" : "neutral"}>{u.is_active ? "Active" : "Inactive"}</Badge>,
+                },
+              ]}
+              data={usersQuery.data}
+              getRowId={(u) => u.id}
+              isLoading={usersQuery.isLoading}
+              isError={usersQuery.isError}
+              pageSize={5}
+              emptyMessage="No users yet."
+              rowActions={(u) => <ResetUserPasswordAction user={u} />}
+            />
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+      )}
+    </Drawer>
+  );
+}
+
 export function PlatformCompaniesPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
 
   const companiesQuery = useQuery({
     queryKey: ["platform", "companies"],
@@ -211,7 +384,7 @@ export function PlatformCompaniesPage() {
     <AppShell>
       <PageHeader
         title="Companies"
-        subtitle="Every tenant on the platform"
+        subtitle="Every tenant on the platform — click a row for usage details"
         actions={<Button onClick={() => setDrawerOpen(true)}>Create company</Button>}
       />
 
@@ -231,6 +404,13 @@ export function PlatformCompaniesPage() {
               accessor: (c) => c.signup_code,
               render: (c) => <span className="font-mono text-xs">{c.signup_code}</span>,
             },
+            {
+              key: "created_at",
+              header: "Created",
+              sortable: true,
+              accessor: (c) => c.created_at,
+              render: (c) => new Date(c.created_at).toLocaleDateString(),
+            },
           ]}
           data={companiesQuery.data}
           getRowId={(c) => c.id}
@@ -239,11 +419,13 @@ export function PlatformCompaniesPage() {
           searchKeys={["name"]}
           searchPlaceholder="Search companies…"
           emptyMessage="No companies yet."
+          onRowClick={(c) => setSelectedCompanyId(c.id)}
           rowActions={(c) => <SuspensionAction company={c} />}
         />
       </Card>
 
       <CreateCompanyDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <CompanyDetailDrawer companyId={selectedCompanyId} onClose={() => setSelectedCompanyId(null)} />
     </AppShell>
   );
 }

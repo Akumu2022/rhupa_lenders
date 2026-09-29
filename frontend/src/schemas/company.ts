@@ -60,7 +60,46 @@ export interface CompanyResponse {
   support_phone: string | null;
   address: string | null;
   registration_number: string | null;
+  created_at: string;
 }
+
+export interface CompanyUserCounts {
+  staff_total: number;
+  staff_active: number;
+  staff_inactive: number;
+  customer_total: number;
+  customer_active: number;
+  customer_inactive: number;
+}
+
+export interface CompanyDetailResponse extends CompanyResponse {
+  users: CompanyUserCounts;
+}
+
+export interface CompanyUserRow {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+}
+
+export interface CompanyActivityPoint {
+  date: string;
+  audit_log_count: number;
+}
+
+export interface CompanyActivityResponse {
+  points: CompanyActivityPoint[];
+  last_activity_at: string | null;
+}
+
+// Mirrors backend app/schemas/user.py::PlatformPasswordResetRequest
+export const platformPasswordResetSchema = z.object({
+  new_password: z.string().min(8, "At least 8 characters"),
+  reason: z.string().min(1, "A reason is required"),
+});
+export type PlatformPasswordResetInput = z.infer<typeof platformPasswordResetSchema>;
 
 export interface CompanyInfoResponse {
   id: number;

@@ -57,6 +57,33 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${inputBase} ${props.className ?? ""}`} />;
 }
 
+/** A password field with a show/hide toggle — this app previously had no way
+ * for someone to see what they'd typed before submitting a login, a new
+ * account's password, or a reset. Never reveals a password already stored on
+ * the server (those are one-way hashed and unrecoverable, by design) — only
+ * what's currently in the input, same as any ordinary password manager UI. */
+export function PasswordInput(props: InputHTMLAttributes<HTMLInputElement>) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        {...props}
+        type={visible ? "text" : "password"}
+        className={`${inputBase} pr-10 ${props.className ?? ""}`}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        tabIndex={-1}
+        aria-label={visible ? "Hide password" : "Show password"}
+        className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+      >
+        <Icon name={visible ? "eyeOff" : "eye"} className="h-4.5 w-4.5" />
+      </button>
+    </div>
+  );
+}
+
 export function Select({
   children,
   ...props

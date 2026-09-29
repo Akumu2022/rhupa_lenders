@@ -36,6 +36,14 @@ def create_access_token(*, user_id: int, role: str, company_id: Optional[int]) -
         "sub": str(user_id),
         "role": role,
         "company_id": company_id,
+        # CLAUDE.md §4/MFA: explicit purpose claim so an mfa_pending token
+        # (see create_mfa_pending_token below) can never be mistaken for a
+        # real access token by get_current_user, even though both are signed
+        # with the same key. Tokens issued before this claim existed have no
+        # "purpose" at all — decode_access_token below treats that as
+        # "access" too, since those are all short-lived (30-60 min) and
+        # naturally age out.
+        "purpose": "access",
         "exp": expire,
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
@@ -47,9 +55,39 @@ def decode_access_token(token: str) -> TokenPayload:
     except JWTError as exc:
         raise ValueError("Invalid or expired token") from exc
 
+    if payload.get("purpose", "access") != "access":
+        raise ValueError("Wrong token type")
+
     user_id = payload.get("sub")
     role = payload.get("role")
     if user_id is None or role is None:
         raise ValueError("Malformed token payload")
 
     return TokenPayload(user_id=int(user_id), role=role, company_id=payload.get("company_id"))
+
+
+# CLAUDE.md §4/MFA: a short-lived intermediate token — proves the password
+# step already succeeded, but grants no API access on its own (get_current_user
+# rejects it via the purpose check above). Only /auth/mfa/verify accepts it.
+_MFA_PENDING_EXPIRE_MINUTES = 5
+
+
+def create_mfa_pending_token(*, user_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=_MFA_PENDING_EXPIRE_MINUTES)
+    payload = {"sub": str(user_id), "purpose": "mfa_pending", "exp": expire}
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_mfa_pending_token(token: str) -> int:
+    """Returns the user_id, or raises ValueError."""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    except JWTError as exc:
+        raise ValueError("Invalid or expired token") from exc
+
+    if payload.get("purpose") != "mfa_pending":
+        raise ValueError("Wrong token type")
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise ValueError("Malformed token payload")
+    return int(user_id)

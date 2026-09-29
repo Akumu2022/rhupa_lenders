@@ -348,6 +348,188 @@ def test_referees_can_be_added_and_listed(client, engine):
     assert list_resp.json()[0]["full_name"] == "Referee One"
 
 
+def _verify_kyc(client, officer_token, customer):
+    queue = client.get("/compliance/queue", headers=_auth_headers(officer_token)).json()
+    profile = next(p for p in queue if p["id"] == customer["profile_id"])
+    resp = client.post(f"/compliance/profiles/{profile['id']}/verify", json={"notes": None}, headers=_auth_headers(officer_token))
+    assert resp.status_code == 200, resp.text
+
+
+def _salary_advance_id(client, token):
+    products = client.get("/loan-products", headers=_auth_headers(token)).json()
+    return next(p for p in products if p["name"] == "Salary Advance")["id"]
+
+
+def test_credit_officer_can_apply_for_verified_customer_in_own_branch(client, engine):
+    """CLAUDE.md §8: the officer prepares the application on the customer's
+    behalf — an assisted path alongside (not replacing) self-service."""
+    ctx = _setup_company_with_credit_officer(client, engine)
+    customer = _register_customer(client, ctx["officer_token"]).json()
+    _verify_kyc(client, ctx["officer_token"], customer)
+    product_id = _salary_advance_id(client, ctx["officer_token"])
+
+    resp = client.post(
+        f"/customers/{customer['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(ctx["officer_token"]),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "pending_branch_review"  # customer has a branch_id
+
+    audit = client.get("/admin/audit-log", headers=_auth_headers(ctx["admin_token"])).json()
+    assert any(entry["action"] == "application.submit_for_customer" for entry in audit)
+
+
+def test_officer_cannot_apply_for_unverified_customer(client, engine):
+    ctx = _setup_company_with_credit_officer(client, engine)
+    customer = _register_customer(client, ctx["officer_token"]).json()
+    product_id = _salary_advance_id(client, ctx["officer_token"])
+
+    resp = client.post(
+        f"/customers/{customer['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(ctx["officer_token"]),
+    )
+    assert resp.status_code == 403
+
+
+def test_officer_cannot_apply_twice_for_the_same_customer(client, engine):
+    ctx = _setup_company_with_credit_officer(client, engine)
+    customer = _register_customer(client, ctx["officer_token"]).json()
+    _verify_kyc(client, ctx["officer_token"], customer)
+    product_id = _salary_advance_id(client, ctx["officer_token"])
+
+    first = client.post(
+        f"/customers/{customer['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(ctx["officer_token"]),
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        f"/customers/{customer['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(ctx["officer_token"]),
+    )
+    assert second.status_code == 409
+
+
+def test_officer_cannot_apply_for_customer_in_another_branch(client, engine):
+    ctx = _setup_company_with_credit_officer(client, engine)
+    other_branch = create_branch(client, ctx["admin_token"], name="Other Branch", code="OTHER")
+    other_officer_resp = client.post(
+        "/staff",
+        json={
+            "email": "other.credit@companya.example.com",
+            "password": "credit-pass-123",
+            "full_name": "Other Credit",
+            "role": "credit_officer",
+            "branch_id": other_branch["id"],
+        },
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert other_officer_resp.status_code == 201
+    other_officer_token = _login(client, "other.credit@companya.example.com", "credit-pass-123")
+
+    customer = _register_customer(client, ctx["officer_token"]).json()
+    _verify_kyc(client, ctx["officer_token"], customer)
+    product_id = _salary_advance_id(client, ctx["officer_token"])
+
+    resp = client.post(
+        f"/customers/{customer['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(other_officer_token),
+    )
+    assert resp.status_code == 404
+
+
+def test_officer_cannot_apply_for_customer_in_another_company(client, engine):
+    ctx_a = _setup_company_with_credit_officer(client, engine, company_name="Company A")
+    ctx_b = _setup_company_with_credit_officer(
+        client, engine, company_name="Company B", platform_token=ctx_a["platform_token"]
+    )
+    customer_b = _register_customer(client, ctx_b["officer_token"], email="b.customer@b.example.com").json()
+    _verify_kyc(client, ctx_b["officer_token"], customer_b)
+    product_id = _salary_advance_id(client, ctx_a["officer_token"])
+
+    resp = client.post(
+        f"/customers/{customer_b['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(ctx_a["officer_token"]),
+    )
+    assert resp.status_code == 404
+
+
+def test_non_credit_officer_cannot_apply_for_a_customer(client, engine):
+    ctx = _setup_company_with_credit_officer(client, engine)
+    customer = _register_customer(client, ctx["officer_token"]).json()
+    _verify_kyc(client, ctx["officer_token"], customer)
+    product_id = _salary_advance_id(client, ctx["officer_token"])
+
+    resp = client.post(
+        f"/customers/{customer['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert resp.status_code == 403
+
+
+def test_list_customer_applications_shows_history_to_all_three_viewer_roles(client, engine):
+    ctx = _setup_company_with_credit_officer(client, engine)
+    customer = _register_customer(client, ctx["officer_token"]).json()
+    _verify_kyc(client, ctx["officer_token"], customer)
+    product_id = _salary_advance_id(client, ctx["officer_token"])
+    client.post(
+        f"/customers/{customer['id']}/applications",
+        json={"loan_product_id": product_id, "amount_requested": "5000.00"},
+        headers=_auth_headers(ctx["officer_token"]),
+    )
+
+    manager_resp = client.post(
+        "/staff",
+        json={
+            "email": "manager@a.example.com",
+            "password": "manager-pass-123",
+            "full_name": "Manager One",
+            "role": "branch_manager",
+            "branch_id": ctx["branch"]["id"],
+        },
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert manager_resp.status_code == 201
+    manager_token = _login(client, "manager@a.example.com", "manager-pass-123")
+
+    for token in (ctx["officer_token"], manager_token, ctx["admin_token"]):
+        resp = client.get(f"/customers/{customer['id']}/applications", headers=_auth_headers(token))
+        assert resp.status_code == 200, resp.text
+        assert len(resp.json()) == 1
+        assert resp.json()[0]["amount_requested"] == "5000.00"
+
+
+def test_list_customer_applications_is_branch_scoped_for_officer(client, engine):
+    ctx = _setup_company_with_credit_officer(client, engine)
+    other_branch = create_branch(client, ctx["admin_token"], name="Other Branch", code="OTHER")
+    other_officer_resp = client.post(
+        "/staff",
+        json={
+            "email": "other.credit@companya.example.com",
+            "password": "credit-pass-123",
+            "full_name": "Other Credit",
+            "role": "credit_officer",
+            "branch_id": other_branch["id"],
+        },
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert other_officer_resp.status_code == 201
+    other_officer_token = _login(client, "other.credit@companya.example.com", "credit-pass-123")
+
+    customer = _register_customer(client, ctx["officer_token"]).json()
+
+    resp = client.get(f"/customers/{customer['id']}/applications", headers=_auth_headers(other_officer_token))
+    assert resp.status_code == 404
+
+
 def test_self_signup_profile_still_works_and_gets_customer_number(client, engine):
     """CLAUDE.md §27: the self-signup path (M1/M2) must keep working
     unchanged, and also gets a customer_number on first submission."""

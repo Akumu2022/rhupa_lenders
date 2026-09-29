@@ -29,7 +29,9 @@ class PenaltyType(str, enum.Enum):
 
 class LoanProduct(TenantMixin, table=True):
     """CLAUDE.md M4: seeded per company (Salary Advance, Emergency, Business).
-    No admin CRUD yet — product configuration is deferred to M8.
+    system_administrator can create/edit further products beyond the seeded
+    defaults (app/routers/admin.py) — never a hard delete, since existing
+    loans/applications reference a product; `is_active` is the retire lever.
 
     CLAUDE.md §23: interest_model + installment_count select which of the
     three schedule shapes app/loan_calculation.py generates; the penalty_*
@@ -70,3 +72,9 @@ class LoanProduct(TenantMixin, table=True):
     branch_manager_delegated_limit: Decimal = Field(
         default=Decimal("100000.00"), max_digits=12, decimal_places=2
     )
+
+    # CLAUDE.md §27 (M12): when true, an application on this product cannot
+    # be *approved* (branch manager or committee) without at least one
+    # verified Guarantor attached — see app/application_review.py. Default
+    # False so existing seeded products are unaffected.
+    requires_guarantor: bool = Field(default=False)

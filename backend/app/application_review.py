@@ -7,7 +7,7 @@ logic exists in exactly one place, not copy-pasted per role.
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
-from .models import ApplicationReviewStage, ReviewDecision, ReviewStage
+from .models import ApplicationReviewStage, Guarantor, GuarantorVerificationStatus, LoanProduct, ReviewDecision, ReviewStage
 
 
 def check_no_self_approval(session: Session, application_id: int, actor_id: int) -> None:
@@ -46,3 +46,29 @@ def write_review_stage(
     )
     session.add(entry)
     return entry
+
+
+def require_guarantor_if_needed(session: Session, application_id: int, product: LoanProduct) -> None:
+    """CLAUDE.md §27 (M12): a product may require at least one verified
+    guarantor before an application on it can be approved. Applications can
+    be submitted either by the customer themselves or by a credit officer on
+    their behalf (app/routers/loans.py) — either way, submission happens
+    before a credit officer has necessarily had a chance to attach
+    guarantors, so unlike the spec's literal "blocked at submission" wording,
+    this codebase's equivalent gate is here, at approval time (the only point
+    in the chain that actually creates a loan), called from both
+    branch_manager.py and committee.py.
+    """
+    if not product.requires_guarantor:
+        return
+    verified = session.exec(
+        select(Guarantor.id).where(
+            Guarantor.application_id == application_id,
+            Guarantor.verification_status == GuarantorVerificationStatus.verified,
+        )
+    ).first()
+    if verified is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This product requires at least one verified guarantor before approval",
+        )

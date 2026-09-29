@@ -5,6 +5,7 @@ import { AppShell } from "../../components/AppShell";
 import { Banner, Button, Card, PageHeader, TextInput } from "../../components/ui";
 import { DataTable } from "../../components/DataTable";
 import { Drawer } from "../../components/Drawer";
+import { GuarantorsCollateralPanel } from "../../components/GuarantorsCollateralPanel";
 import { useToast } from "../../components/toast";
 import type { CreditApplicationResponse } from "../../schemas/credit";
 import type { CommitteeQueueItemResponse } from "../../schemas/committee";
@@ -66,6 +67,10 @@ function DecisionDrawer({
               Branch manager's recommendation — {application.branch_manager_name}
             </p>
             <p className="mt-1 text-slate-700 dark:text-slate-300">{application.branch_manager_comments}</p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+            <GuarantorsCollateralPanel applicationId={application.id} />
           </div>
 
           <div className="border-t border-slate-100 pt-4 dark:border-slate-800">

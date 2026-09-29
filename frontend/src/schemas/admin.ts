@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { InterestModel, LoanStatus } from "./loan";
+import type { InterestModel, LoanStatus, RepaymentInstallmentResponse } from "./loan";
 
 // Mirrors backend app/schemas/admin.py
 export interface AuditLogResponse {
@@ -39,13 +39,17 @@ export interface AdminLoanProductResponse {
   interest_rate: string;
   repayment_period_days: number;
   is_active: boolean;
-  // CLAUDE.md §23 — not yet editable from this admin UI, see productUpdateSchema.
+  // CLAUDE.md §23
   interest_model: InterestModel;
   installment_count: number;
   penalty_type: string;
   penalty_rate: string;
   grace_period_days: number;
   penalty_cap_ratio: string;
+  // CLAUDE.md §26 (M13)
+  branch_manager_delegated_limit: string;
+  // CLAUDE.md §27 (M12)
+  requires_guarantor: boolean;
 }
 
 // CLAUDE.md §25: a company-scoped org unit, not a tenant boundary.
@@ -66,15 +70,32 @@ export const branchCreateSchema = z.object({
 });
 export type BranchCreateInput = z.infer<typeof branchCreateSchema>;
 
-export const productUpdateSchema = z.object({
+// Shared by both the create and edit product drawers — CLAUDE.md §19:
+// products are config rows an admin authors, every field editable, not a
+// fixed hard-coded catalog. Numbers stay strings here (native form input
+// values) and are converted right before the API call, same pattern as
+// repayment_period_days already used.
+const productFieldsSchema = {
   name: z.string().min(1, "Required"),
   description: z.string().optional(),
   min_amount: z.string().min(1, "Required"),
   max_amount: z.string().min(1, "Required"),
   interest_rate: z.string().min(1, "Required"),
   repayment_period_days: z.string().min(1, "Required"),
-});
+  interest_model: z.enum(["flat", "reducing_balance", "daily_accrual"]),
+  installment_count: z.string().min(1, "Required"),
+  penalty_rate: z.string().min(1, "Required"),
+  grace_period_days: z.string().min(1, "Required"),
+  penalty_cap_ratio: z.string().min(1, "Required"),
+  branch_manager_delegated_limit: z.string().min(1, "Required"),
+  requires_guarantor: z.boolean().optional(),
+};
+
+export const productUpdateSchema = z.object(productFieldsSchema);
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
+
+export const productCreateSchema = z.object(productFieldsSchema);
+export type ProductCreateInput = z.infer<typeof productCreateSchema>;
 
 export interface PortfolioTrendPoint {
   date: string;
@@ -97,4 +118,51 @@ export interface PortfolioSummaryResponse {
   defaulted_loans: number;
   loans_disbursed_this_month: number;
   as_of: string;
+}
+
+// Mirrors backend app/schemas/admin.py::UserSummaryResponse
+export interface UserSummaryResponse {
+  staff_total: number;
+  staff_active: number;
+  staff_inactive: number;
+  customer_total: number;
+  customer_active: number;
+  customer_inactive: number;
+}
+
+// Mirrors backend app/schemas/admin.py::LoanCalculatorRequest — a
+// non-persisting preview over the exact same generate_schedule() dispatcher
+// the real approval flow uses (CLAUDE.md §23: frontend never computes real
+// money itself).
+export const loanCalculatorSchema = z.object({
+  principal: z.string().min(1, "Required"),
+  interest_rate: z.string().min(1, "Required"),
+  interest_model: z.enum(["flat", "reducing_balance", "daily_accrual"]),
+  term_days: z.string().min(1, "Required"),
+  installment_count: z.string().min(1, "Required"),
+});
+export type LoanCalculatorInput = z.infer<typeof loanCalculatorSchema>;
+
+export interface LoanCalculatorResponse {
+  principal: string;
+  total_interest: string;
+  total_repayable: string;
+  schedule: RepaymentInstallmentResponse[];
+}
+
+// Mirrors backend app/schemas/admin.py::AdminLoanDetailResponse
+export interface AdminLoanDetailResponse {
+  id: number;
+  customer_full_name: string;
+  customer_email: string;
+  loan_product_name: string;
+  principal: string;
+  interest_rate: string;
+  total_repayable: string;
+  penalties_accrued: string;
+  outstanding_balance: string;
+  status: LoanStatus;
+  disbursed_at: string | null;
+  created_at: string;
+  schedule: RepaymentInstallmentResponse[];
 }
