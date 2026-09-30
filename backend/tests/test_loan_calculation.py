@@ -17,7 +17,18 @@ from app.loan_calculation import (
     generate_schedule,
     round_money,
 )
-from app.models import InterestModel, Loan, LoanProduct, PenaltyType, RepaymentSchedule, Transaction
+from app.models import (
+    Company,
+    InterestModel,
+    Loan,
+    LoanApplication,
+    LoanProduct,
+    PenaltyType,
+    RepaymentSchedule,
+    Transaction,
+    User,
+    UserRole,
+)
 from app.tenancy import tenant_context
 
 
@@ -26,6 +37,32 @@ def session(engine):
     """A DB session pre-scoped to a single company — app/loan_calculation.py
     queries tenant-owned models (RepaymentSchedule), which requires an active
     tenant_context (CLAUDE.md §5)."""
+    # The penalty tests below refer to company/customer/product/application
+    # id 1. Create those rows for real so Postgres's foreign keys hold
+    # (SQLite doesn't enforce them). Fresh database per test, so each is id 1.
+    with Session(engine) as setup:
+        with tenant_context(None):
+            company = Company(name="Calc Co", signup_code="calc-test-code-01")
+            setup.add(company)
+            setup.commit()
+            customer = User(
+                email="calc@example.com", hashed_password="x", role=UserRole.customer,
+                full_name="Calc Customer", company_id=company.id,
+            )
+            product = LoanProduct(
+                company_id=company.id, name="Fixture Product", min_amount=Decimal("100.00"),
+                max_amount=Decimal("100000.00"), interest_rate=Decimal("5.00"), repayment_period_days=30,
+            )
+            setup.add_all([customer, product])
+            setup.commit()
+            application = LoanApplication(
+                customer_id=customer.id, loan_product_id=product.id, amount_requested=Decimal("5000.00"),
+                company_id=company.id,
+            )
+            setup.add(application)
+            setup.commit()
+            assert (company.id, customer.id, product.id, application.id) == (1, 1, 1, 1)
+
     with tenant_context(1):
         with Session(engine) as db_session:
             yield db_session

@@ -47,11 +47,21 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      TEST_DATABASE_URL: postgresql://rhupa:rhupa@localhost:5432/rhupa_test
+      # An ordinary role that owns the test database, like a real app role.
+      # Superusers (and BYPASSRLS roles) skip row-level security entirely,
+      # so testing as the service's superuser would prove nothing.
+      TEST_DATABASE_URL: postgresql://app:app@localhost:5432/rhupa_test
     defaults:
       run:
         working-directory: backend
     steps:
+      - name: Create a non-superuser app role
+        env:
+          PGPASSWORD: rhupa
+        run: |
+          psql -h localhost -U rhupa -d postgres -c "CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS"
+          psql -h localhost -U rhupa -d postgres -c "ALTER DATABASE rhupa_test OWNER TO app"
+          psql -h localhost -U rhupa -d rhupa_test -c "ALTER SCHEMA public OWNER TO app"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:

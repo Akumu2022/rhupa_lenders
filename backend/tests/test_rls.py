@@ -47,6 +47,17 @@ def _two_companies_with_products(engine) -> tuple[int, int]:
 
 
 @postgres_only
+def test_tests_run_as_a_role_that_rls_applies_to(engine):
+    """Superusers and BYPASSRLS roles skip row-level security, which would
+    make every enforcement test here pass vacuously."""
+    with engine.connect() as conn:
+        exempt = conn.execute(
+            text("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")
+        ).scalar()
+    assert exempt is False
+
+
+@postgres_only
 def test_raw_sql_sees_only_the_scoped_company(engine):
     a, b = _two_companies_with_products(engine)
     with tenant_context(a), engine.connect() as conn:
