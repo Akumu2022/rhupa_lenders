@@ -77,6 +77,10 @@ def run_migrations_online() -> None:
             # write every company's rows once row-level security is forced
             # (app/rls.py). Scoped to this migration connection only.
             connection.exec_driver_sql("SELECT set_config('app.bypass', 'on', false)")
+            # Close the implicit transaction that statement opened, so Alembic
+            # starts its own (migrations using autocommit_block need that).
+            # A session-level setting survives the commit.
+            connection.commit()
         context.configure(
             connection=connection, target_metadata=target_metadata
         )
