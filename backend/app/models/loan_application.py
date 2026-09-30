@@ -42,6 +42,12 @@ class LoanApplication(TenantMixin, table=True):
     # manager to route them to.
     branch_id: Optional[int] = Field(default=None, foreign_key="branch.id", index=True)
 
+    # The credit officer who prepared this application on the customer's
+    # behalf (officer-assisted submission) — stamped server-side from the
+    # authenticated actor, never the body. Null for a customer's own
+    # self-service submission. Drives each officer's "my portfolio" views.
+    prepared_by: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+
     # CLAUDE.md §11: every reviewable entity carries status + reviewer fields.
     # reviewed_by/reviewed_at/review_notes are the LAST decision's summary
     # (kept for the existing single-glance views); the full per-stage trail

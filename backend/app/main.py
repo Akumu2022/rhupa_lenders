@@ -8,6 +8,7 @@ from .config import settings
 from .limiter import limiter
 from .routers import (
     admin,
+    analytics,
     auth,
     branch_manager,
     committee,
@@ -57,6 +58,7 @@ app.include_router(branch_manager.router)
 app.include_router(committee.router)
 app.include_router(finance.router)
 app.include_router(management.router)
+app.include_router(analytics.router)
 
 
 @app.get("/health")

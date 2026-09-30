@@ -136,6 +136,7 @@ def _create_application(
         company_id=customer.company_id,  # from the applicant, never the body
         branch_id=customer.branch_id,
         status=initial_status,
+        prepared_by=actor.id if actor.id != customer.id else None,
     )
     session.add(application)
     session.flush()

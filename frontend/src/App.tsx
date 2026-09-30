@@ -21,7 +21,6 @@ import { ComplianceDashboardPage } from "./pages/compliance/DashboardPage";
 import { ComplianceQueuePage } from "./pages/compliance/QueuePage";
 import { CreditDashboardPage } from "./pages/credit/DashboardPage";
 import { CreditApplicationsPage } from "./pages/credit/ApplicationsPage";
-import { CreditDecisionsPage } from "./pages/credit/DecisionsPage";
 import { CollectionsPage } from "./pages/credit/CollectionsPage";
 import { RegisterCustomerPage } from "./pages/credit/RegisterCustomerPage";
 import { CustomerListPage } from "./pages/customers/CustomerListPage";
@@ -118,7 +117,9 @@ function App() {
         <Route path="/credit/customers" element={<CustomerListPage />} />
         <Route path="/credit/applications" element={<CreditApplicationsPage />} />
         <Route path="/credit/collections" element={<CollectionsPage />} />
-        <Route path="/credit/decisions" element={<CreditDecisionsPage />} />
+        <Route path="/credit/portfolio" element={<CreditApplicationsPage mode="mine" />} />
+        {/* My Decisions retired: credit officers stopped deciding in M13 (CLAUDE.md §26). */}
+        <Route path="/credit/decisions" element={<Navigate to="/credit/portfolio" replace />} />
       </Route>
 
       {/* CLAUDE.md §14 M13/M14/M17/M18: multi-stage approval chain,
@@ -142,6 +143,16 @@ function App() {
       <Route element={<ProtectedRoute allowedRoles={["cashier_finance_officer"]} />}>
         <Route path="/finance" element={<FinanceDashboardPage />} />
         <Route path="/finance/disbursements" element={<FinanceDisbursementsPage />} />
+        <Route
+          path="/finance/loans"
+          element={
+            <CreditApplicationsPage
+              title="Loans"
+              subtitle="Every application and loan in the company, from submission to repayment"
+              canEditGuarantors={false}
+            />
+          }
+        />
         <Route path="/finance/financials" element={<FinanceFinancialsPage />} />
         <Route path="/finance/reports" element={<FinanceReportsPage />} />
       </Route>

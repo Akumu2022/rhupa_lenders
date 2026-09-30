@@ -13,8 +13,8 @@ import type { ComplianceProfileResponse } from "../../schemas/compliance";
 type StatusFilter = "pending" | "verified" | "rejected" | "all";
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
-  { value: "pending", label: "Pending" },
   { value: "verified", label: "Verified" },
+  { value: "pending", label: "Pending" },
   { value: "rejected", label: "Rejected" },
   { value: "all", label: "All" },
 ];

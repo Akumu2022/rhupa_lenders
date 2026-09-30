@@ -47,7 +47,7 @@ export const NAV_BY_ROLE: Record<string, NavItem[]> = {
     { label: "KYC Queue", path: "/compliance/queue", icon: "clipboardList" },
     { label: "Applications", path: "/credit/applications", icon: "documentText" },
     { label: "Collections", path: "/credit/collections", icon: "archiveBox" },
-    { label: "My Decisions", path: "/credit/decisions", icon: "checkCircle" },
+    { label: "My Portfolio", path: "/credit/portfolio", icon: "wallet" },
     { label: "Security", path: "/security", icon: "shieldCheck" },
   ],
   branch_manager: [
@@ -68,6 +68,7 @@ export const NAV_BY_ROLE: Record<string, NavItem[]> = {
   cashier_finance_officer: [
     { label: "Dashboard", path: "/finance", icon: "dashboard" },
     { label: "Disbursements", path: "/finance/disbursements", icon: "banknotes" },
+    { label: "Loans", path: "/finance/loans", icon: "documentText" },
     { label: "Financials", path: "/finance/financials", icon: "chartBar" },
     { label: "Reports", path: "/finance/reports", icon: "archiveBox" },
     { label: "Security", path: "/security", icon: "shieldCheck" },
