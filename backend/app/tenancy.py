@@ -57,6 +57,13 @@ def tenant_context(company_id: Optional[int]) -> Iterator[None]:
         _current_company_id.reset(token)
 
 
+def current_scope():
+    """The raw scope for this request/script: a company id, None (explicit
+    platform bypass), or the _UNSET sentinel. Read by app/rls.py to tell
+    Postgres the same thing the ORM filter below enforces."""
+    return _current_company_id.get()
+
+
 def _tenant_filter(execute_state) -> None:
     if not execute_state.is_select:
         return

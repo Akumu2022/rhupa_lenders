@@ -72,6 +72,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        if connection.dialect.name == "postgresql":
+            # Migrations are platform-level: data backfills must see and
+            # write every company's rows once row-level security is forced
+            # (app/rls.py). Scoped to this migration connection only.
+            connection.exec_driver_sql("SELECT set_config('app.bypass', 'on', false)")
         context.configure(
             connection=connection, target_metadata=target_metadata
         )

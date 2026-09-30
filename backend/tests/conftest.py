@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
@@ -8,19 +10,39 @@ from app.db import get_session
 from app.limiter import limiter
 from app.main import app
 from app.models import User, UserRole
+from app.rls import TENANT_TABLES, force_statements
 from app.security import hash_password
 from app.tenancy import tenant_context
 
 
+# Set TEST_DATABASE_URL (postgresql://...) to run the whole suite against a
+# real Postgres with row-level security FORCED on every tenant table, so any
+# code path the database-level policies would block fails here first
+# (CI job "backend-tests-postgres"). Unset: fast in-memory SQLite.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
+
+
 @pytest.fixture()
 def engine():
+    if TEST_DATABASE_URL:
+        test_engine = create_engine(TEST_DATABASE_URL)
+        SQLModel.metadata.drop_all(test_engine)
+        SQLModel.metadata.create_all(test_engine)  # also installs policies + audit triggers
+        with test_engine.begin() as conn:
+            for table in TENANT_TABLES:
+                for statement in force_statements(table):
+                    conn.exec_driver_sql(statement)
+        yield test_engine
+        test_engine.dispose()
+        return
+
     test_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     SQLModel.metadata.create_all(test_engine)
-    return test_engine
+    yield test_engine
 
 
 @pytest.fixture()

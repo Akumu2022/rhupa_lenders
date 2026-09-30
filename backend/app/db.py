@@ -1,5 +1,6 @@
 from sqlmodel import Session, create_engine
 
+from . import rls  # noqa: F401 — Postgres row-level security scope + policies (app/rls.py)
 from .config import settings
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
