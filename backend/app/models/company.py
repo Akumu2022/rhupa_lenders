@@ -43,6 +43,9 @@ class Company(SQLModel, table=True):
     # never read-then-blindly-written. Starts at 1, not 0, so the first
     # generated number is CUST-{company_id:04d}-000001.
     next_customer_sequence: int = Field(default=1)
+    # Same compare-and-set counter pattern, behind repayment receipt numbers
+    # (app/repayments.py::next_receipt_number).
+    next_receipt_sequence: int = Field(default=1)
 
     # Added after several companies already existed (see the migration) —
     # pre-existing rows show the migration's timestamp, not their true

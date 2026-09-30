@@ -23,6 +23,7 @@ import {
   YAxis,
 } from "recharts";
 import { apiRequest } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { safeHex, useBranding } from "../branding";
 import {
   INSTALLMENT_META,
@@ -38,6 +39,7 @@ import {
   type TimelineResponse,
 } from "../schemas/analytics";
 import { DataTable } from "./DataTable";
+import { RecordPaymentPanel } from "./RecordPayment";
 import { Icon, type IconName } from "./icons";
 import { Skeleton } from "./Skeleton";
 import { Badge, Banner, Card, EmptyState, SectionLabel } from "./ui";
@@ -600,7 +602,17 @@ function Figure({ label, value, emphasis }: { label: string; value: ReactNode; e
   );
 }
 
+// Staff who can record a payment the borrower made to them (backend:
+// POST /loans/{id}/payments).
+const PAYMENT_RECORDING_ROLES = new Set(["cashier_finance_officer", "credit_officer"]);
+const OPEN_LOAN_STATUSES = new Set(["active", "overdue", "defaulted"]);
+// Events whose `detail` is someone's written comment (shown in quotes);
+// other details (payment method/reference, date ranges) are plain facts.
+const COMMENT_KINDS = new Set(["review", "override", "defaulted"]);
+
 export function LoanTimeline({ applicationId }: { applicationId: number }) {
+  const { auth } = useAuth();
+  const canRecordPayments = PAYMENT_RECORDING_ROLES.has(auth?.role ?? "");
   const query = useQuery({
     queryKey: ["analytics", "timeline", applicationId],
     queryFn: () => apiRequest<TimelineResponse>(`/analytics/applications/${applicationId}/timeline`),
@@ -669,6 +681,10 @@ export function LoanTimeline({ applicationId }: { applicationId: number }) {
         </Card>
       ) : null}
 
+      {canRecordPayments && t.loan && t.loan.status !== "approved" ? (
+        <RecordPaymentSection loanId={t.loan.loan_id} outstanding={t.loan.outstanding_balance} isOpen={OPEN_LOAN_STATUSES.has(t.loan.status)} />
+      ) : null}
+
       <div>
         <SectionLabel>Movement history</SectionLabel>
         {t.events.length === 0 ? (
@@ -688,7 +704,11 @@ export function LoanTimeline({ applicationId }: { applicationId: number }) {
                   {formatDateTime(e.at)}
                   {e.actor_name ? ` · ${e.actor_name}` : ""}
                 </p>
-                {e.detail ? <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">“{e.detail}”</p> : null}
+                {e.detail ? (
+                  <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                    {COMMENT_KINDS.has(e.kind) ? `“${e.detail}”` : e.detail}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ol>
@@ -729,5 +749,15 @@ export function LoanTimeline({ applicationId }: { applicationId: number }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function RecordPaymentSection({ loanId, outstanding, isOpen }: { loanId: number; outstanding: string; isOpen: boolean }) {
+  return (
+    <Card>
+      <SectionLabel>Record a payment</SectionLabel>
+      <RecordPaymentPanel loanId={loanId} outstanding={outstanding} isOpen={isOpen} />
+      {!isOpen ? <p className="text-xs text-slate-500 dark:text-slate-400">This loan is closed — no further payments.</p> : null}
+    </Card>
   );
 }

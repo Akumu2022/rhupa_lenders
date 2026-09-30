@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 
 from .audit import write_system_audit
 from .models import AuditAction, InterestModel, Loan, LoanProduct, PenaltyType, RepaymentSchedule, Transaction, TransactionType
+from .time_utils import business_today
 
 CENT = Decimal("0.01")
 _ZERO = Decimal("0.00")
@@ -184,7 +185,7 @@ def apply_daily_penalties(session: Session, loan: Loan, product: LoanProduct, *,
     if product.penalty_type != PenaltyType.percentage_per_day:
         return  # only one penalty type implemented for now
 
-    today = today or date.today()
+    today = today or business_today()
 
     earliest_overdue_due_date = session.exec(
         select(RepaymentSchedule.due_date)

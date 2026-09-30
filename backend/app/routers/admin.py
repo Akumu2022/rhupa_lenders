@@ -3,7 +3,7 @@ audit log" is the first piece; applications/KYC/loans/products/portfolio
 oversight land here too as they ship.
 """
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -20,6 +20,7 @@ from ..loan_calculation import generate_schedule
 from ..loan_delinquency import sync_loan_delinquency
 from ..portfolio import compute_portfolio_summary, compute_portfolio_trend
 from ..user_stats import compute_user_counts
+from ..time_utils import business_today
 from ..models import (
     ApplicationStatus,
     AuditAction,
@@ -308,7 +309,7 @@ def calculate_loan(
         interest_model=InterestModel(body.interest_model),
         term_days=body.term_days,
         installment_count=body.installment_count,
-        start_date=body.start_date or date.today(),
+        start_date=body.start_date or business_today(),
     )
     return LoanCalculatorResponse(
         principal=body.principal,

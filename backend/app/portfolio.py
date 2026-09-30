@@ -10,7 +10,7 @@ outstanding PRINCIPAL of loans in arrears over gross outstanding PRINCIPAL,
 not the interest+penalty-inclusive outstanding_balance.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
@@ -18,6 +18,7 @@ from sqlalchemy import and_, case, func
 from sqlmodel import Session, select
 
 from .loan_delinquency import sync_loan_delinquency
+from .time_utils import business_date, business_day_end_utc, business_day_start_utc, business_today
 from .models import ExpenseEntry, Loan, LoanStatus, RepaymentSchedule, Transaction, TransactionType, User
 
 _TREND_DAYS = 14
@@ -85,8 +86,8 @@ def compute_portfolio_summary(session: Session, *, branch_id: Optional[int] = No
     sync_loan_delinquency(session)
 
     outstanding_statuses = _OUTSTANDING_STATUSES
-    today = date.today()
-    month_start_dt = datetime.combine(today.replace(day=1), datetime.min.time(), tzinfo=timezone.utc)
+    today = business_today()
+    month_start_dt = business_day_start_utc(today.replace(day=1))
 
     count_query = select(
         func.count(case((Loan.status.in_(outstanding_statuses), 1), else_=None)),
@@ -155,9 +156,9 @@ class TrendPoint:
 def compute_portfolio_trend(session: Session, *, branch_id: Optional[int] = None) -> list[TrendPoint]:
     """CLAUDE.md §20: sparkline data — daily disbursement activity over the
     trailing window, computed from existing Loan rows."""
-    today = date.today()
+    today = business_today()
     window_start = today - timedelta(days=_TREND_DAYS - 1)
-    window_start_dt = datetime.combine(window_start, datetime.min.time(), tzinfo=timezone.utc)
+    window_start_dt = business_day_start_utc(window_start)
 
     query = select(Loan).where(Loan.disbursed_at.is_not(None), Loan.disbursed_at >= window_start_dt)
     if branch_id is not None:
@@ -166,7 +167,7 @@ def compute_portfolio_trend(session: Session, *, branch_id: Optional[int] = None
 
     by_day: dict[date, list] = {window_start + timedelta(days=i): [] for i in range(_TREND_DAYS)}
     for loan in loans:
-        day = loan.disbursed_at.date()
+        day = business_date(loan.disbursed_at)
         if day in by_day:
             by_day[day].append(loan)
 
@@ -208,8 +209,8 @@ def compute_report(
     role/cadence, same "one dispatcher selected by a parameter" philosophy
     §23 already uses for interest models.
     """
-    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
-    end_dt = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
+    start_dt = business_day_start_utc(start_date)
+    end_dt = business_day_end_utc(end_date)
 
     txn_query = select(Transaction.type, Transaction.amount, Transaction.customer_id).where(
         Transaction.created_at >= start_dt, Transaction.created_at <= end_dt

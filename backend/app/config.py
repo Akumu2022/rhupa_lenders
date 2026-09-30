@@ -7,6 +7,13 @@ class Settings:
 
     database_url: str = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")
 
+    # The business day every "today" decision uses — due dates, overdue
+    # status, daily penalties, "due today" dashboards. Servers run in UTC;
+    # Kenya is UTC+3, so using the server's date would put anything between
+    # 00:00 and 03:00 EAT on the wrong day. Platform-wide for now (every
+    # tenant is in the Kenyan market, CLAUDE.md §1).
+    business_timezone: str = os.environ.get("BUSINESS_TIMEZONE", "Africa/Nairobi")
+
     # CLAUDE.md §2: access tokens are short-lived, no refresh-token flow in the MVP.
     jwt_secret_key: str = os.environ.get("JWT_SECRET_KEY", "dev-only-insecure-secret-change-me")
     jwt_algorithm: str = "HS256"

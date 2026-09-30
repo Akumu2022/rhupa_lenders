@@ -16,7 +16,7 @@ payments are allocated principal first, then base interest, then penalties.
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Iterable, Optional
 
@@ -41,7 +41,7 @@ from .models import (
     User,
     UserRole,
 )
-from .time_utils import as_utc
+from .time_utils import as_utc, business_date, business_today
 
 ZERO = Decimal("0.00")
 CENT = Decimal("0.01")
@@ -244,7 +244,7 @@ def _load_book(session: Session, scope: Scope) -> _Book:
 def _in_range(value: Optional[datetime], start: date, end: date) -> bool:
     if value is None:
         return False
-    return start <= as_utc(value).date() <= end
+    return start <= business_date(value) <= end
 
 
 def _stage_counts(applications: Iterable[LoanApplication], loan_by_app: dict[int, Loan]) -> list[dict]:
@@ -278,7 +278,7 @@ def compute_dashboard(
     today: Optional[date] = None,
 ) -> dict:
     sync_loan_delinquency(session)
-    today = today or date.today()
+    today = today or business_today()
     book = _load_book(session, scope)
     loan_by_app = {loan.application_id: loan for loan in book.loans}
     loan_by_id = {loan.id: loan for loan in book.loans}
@@ -348,7 +348,7 @@ def compute_dashboard(
     granularity, periods = _series_periods(start, end)
 
     def _period_key(value: datetime) -> date:
-        d = as_utc(value).date()
+        d = business_date(value)
         return d if granularity == "day" else d.replace(day=1)
 
     series = {p: {"period": p, "disbursed": ZERO, "collected": ZERO, "due": ZERO} for p in periods}
@@ -459,7 +459,7 @@ def compute_dashboard(
 
 def list_applications(session: Session, scope: Scope, *, today: Optional[date] = None) -> list[dict]:
     sync_loan_delinquency(session)
-    today = today or date.today()
+    today = today or business_today()
     rows = session.exec(
         _scoped(
             select(LoanApplication, User, LoanProduct, Loan)
@@ -522,7 +522,7 @@ def list_applications(session: Session, scope: Scope, *, today: Optional[date] =
 
 def build_timeline(session: Session, application: LoanApplication, *, today: Optional[date] = None) -> dict:
     sync_loan_delinquency(session)
-    today = today or date.today()
+    today = today or business_today()
     customer = session.get(User, application.customer_id)
     product = session.get(LoanProduct, application.loan_product_id)
     branch = session.get(Branch, application.branch_id) if application.branch_id else None
@@ -645,16 +645,35 @@ def build_timeline(session: Session, application: LoanApplication, *, today: Opt
         transactions = session.exec(
             select(Transaction).where(Transaction.loan_id == loan.id).order_by(Transaction.created_at)
         ).all()
-        repay_audits = by_action.get(AuditAction.LOAN_REPAY.value, [])
         repayments = [t for t in transactions if t.type == TransactionType.repayment]
-        for index, txn in enumerate(repayments):
-            actor = repay_audits[index].actor_id if index < len(repay_audits) else None
-            add(txn.created_at, "repayment", "Repayment received", tone="success", actor_id=actor, amount=txn.amount)
+        extra_ids = {t.recorded_by for t in repayments if t.recorded_by} - set(names)
+        if extra_ids:
+            names.update({u.id: u.full_name for u in session.exec(select(User).where(User.id.in_(extra_ids))).all()})
+        if customer is not None:
+            names.setdefault(customer.id, customer.full_name)
+        method_label = {"customer_portal": "Customer portal", "cash": "Cash", "mpesa": "M-Pesa", "bank": "Bank"}
+        for txn in repayments:
+            parts = [method_label.get(txn.method.value, txn.method.value)] if txn.method else []
+            if txn.reference:
+                parts.append(txn.reference)
+            if txn.receipt_number:
+                parts.append(f"Receipt {txn.receipt_number}")
+            if txn.notes:
+                parts.append(txn.notes)
+            add(
+                txn.created_at,
+                "repayment",
+                "Payment received" if txn.recorded_by else "Repayment received",
+                tone="success",
+                actor_id=txn.recorded_by or txn.customer_id,
+                detail=" · ".join(parts) or None,
+                amount=txn.amount,
+            )
         penalties = [t for t in transactions if t.type == TransactionType.penalty]
         if penalties:
             total_penalty = sum((t.amount for t in penalties), ZERO)
-            first = as_utc(penalties[0].created_at).date()
-            last = as_utc(penalties[-1].created_at).date()
+            first = business_date(penalties[0].created_at)
+            last = business_date(penalties[-1].created_at)
             add(
                 penalties[-1].created_at,
                 "penalty",

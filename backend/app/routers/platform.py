@@ -4,7 +4,7 @@ system_administrator, and toggles suspend/reactivate — each toggle is a
 platform-audited, reasoned action (CLAUDE.md §6).
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, update
@@ -32,6 +32,7 @@ from ..schemas.user import PlatformPasswordResetRequest
 from ..security import hash_password
 from ..signup_code import generate_signup_code
 from ..user_stats import compute_user_counts
+from ..time_utils import business_date, business_day_start_utc, business_today
 
 router = APIRouter(prefix="/platform", tags=["platform"])
 
@@ -149,9 +150,9 @@ def get_company_activity(
     active" signal with no new instrumentation."""
     get_or_404(session, Company, company_id, detail="Company not found")
 
-    today = date.today()
+    today = business_today()
     window_start = today - timedelta(days=_ACTIVITY_TREND_DAYS - 1)
-    window_start_dt = datetime.combine(window_start, datetime.min.time(), tzinfo=timezone.utc)
+    window_start_dt = business_day_start_utc(window_start)
 
     rows = session.exec(
         select(AuditLog.created_at).where(
@@ -161,7 +162,7 @@ def get_company_activity(
 
     by_day: dict[date, int] = {window_start + timedelta(days=i): 0 for i in range(_ACTIVITY_TREND_DAYS)}
     for created_at in rows:
-        day = created_at.date()
+        day = business_date(created_at)
         if day in by_day:
             by_day[day] += 1
 

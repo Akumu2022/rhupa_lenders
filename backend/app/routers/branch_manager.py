@@ -17,7 +17,7 @@ from ..audit import write_audit
 from ..db import get_session
 from ..deps import require_role
 from ..loan_delinquency import sync_loan_delinquency
-from ..time_utils import as_utc
+from ..time_utils import as_utc, business_today
 from ..models import (
     ApplicationStatus,
     AuditAction,
@@ -268,7 +268,7 @@ def get_branch_collections(
         .order_by(Loan.id)
     ).all()
 
-    today = date.today()
+    today = business_today()
     loan_ids = [loan.id for loan, _, _ in loan_rows]
     earliest_overdue_by_loan: dict[int, date] = {}
     if loan_ids:

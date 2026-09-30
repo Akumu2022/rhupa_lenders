@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field
 
 from ..tenancy import TenantMixin
@@ -17,6 +18,17 @@ class TransactionType(str, enum.Enum):
     penalty = "penalty"
 
 
+class PaymentMethod(str, enum.Enum):
+    """How a repayment reached the lender. `customer_portal` is the
+    customer's own self-service "repay now" (still simulated, CLAUDE.md §1);
+    the rest are recorded by staff who received the money."""
+
+    customer_portal = "customer_portal"
+    cash = "cash"
+    mpesa = "mpesa"
+    bank = "bank"
+
+
 class Transaction(TenantMixin, table=True):
     """CLAUDE.md §15 core entity, ledger for the simulated money movements.
 
@@ -26,9 +38,29 @@ class Transaction(TenantMixin, table=True):
     legitimately empty until M7 ships.
     """
 
+    # One external payment reference (e.g. an M-Pesa code) can be recorded
+    # once per company — the guard against the same payment being keyed in
+    # twice. NULL references (disbursements, penalties, cash without a slip)
+    # never collide: NULLs are distinct in a unique constraint on both
+    # SQLite and Postgres.
+    __table_args__ = (
+        UniqueConstraint("company_id", "reference", name="uq_transaction_company_reference"),
+        UniqueConstraint("company_id", "receipt_number", name="uq_transaction_company_receipt"),
+    )
+
     id: Optional[int] = Field(default=None, primary_key=True)
     loan_id: int = Field(foreign_key="loan.id", index=True)
     customer_id: int = Field(foreign_key="user.id", index=True)
     type: TransactionType
     amount: Decimal = Field(max_digits=12, decimal_places=2)
+
+    # Repayment-only fields (null on disbursement/penalty rows).
+    method: Optional[PaymentMethod] = None
+    reference: Optional[str] = Field(default=None, max_length=64)
+    receipt_number: Optional[str] = Field(default=None, max_length=32)
+    # The staff member who received and recorded the payment; null when the
+    # customer paid through their own portal.
+    recorded_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    notes: Optional[str] = Field(default=None, max_length=500)
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

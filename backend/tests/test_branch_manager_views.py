@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from sqlmodel import Session, select
 
+from app.time_utils import business_today
 from app.models import Loan, RepaymentSchedule
 from app.tenancy import tenant_context
 from tests.test_credit import (
@@ -80,7 +81,7 @@ def test_branch_manager_collections_lists_own_branch_overdue_loans(client, engin
     with Session(engine) as session:
         with tenant_context(ctx["company"]["id"]):
             schedule = session.exec(select(RepaymentSchedule).where(RepaymentSchedule.loan_id == loan_id)).first()
-            schedule.due_date = date.today() - timedelta(days=2)
+            schedule.due_date = business_today() - timedelta(days=2)
             session.add(schedule)
             session.commit()
 

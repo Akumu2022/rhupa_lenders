@@ -1,8 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..models import ApplicationStatus
 
@@ -71,6 +71,39 @@ class CustomerLoanResponse(BaseModel):
 
 class RepaymentRequest(BaseModel):
     amount: Decimal = Field(gt=0)
+
+
+class StaffPaymentRequest(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    method: Literal["cash", "mpesa", "bank"]
+    # M-Pesa transaction code or bank slip number. Required for M-Pesa/bank
+    # (it's what stops the same payment being recorded twice); optional for
+    # cash.
+    reference: Optional[str] = Field(default=None, max_length=64)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _reference_required_for_traceable_methods(self) -> "StaffPaymentRequest":
+        if self.method in ("mpesa", "bank") and not (self.reference and self.reference.strip()):
+            raise ValueError("A payment reference is required for M-Pesa and bank payments")
+        return self
+
+
+class ReceiptResponse(BaseModel):
+    transaction_id: int
+    receipt_number: str
+    loan_id: int
+    application_id: int
+    customer_full_name: str
+    loan_product_name: str
+    amount: Decimal
+    method: str
+    reference: Optional[str]
+    notes: Optional[str]
+    received_by_name: str
+    received_at: datetime
+    outstanding_balance_after: Decimal
+    loan_status: str
 
 
 class RepaymentResponse(BaseModel):

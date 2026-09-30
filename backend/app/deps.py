@@ -27,6 +27,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 # NOT here ("new applications / disbursements: stopped").
 SUSPENSION_ALLOWLIST: set[tuple[str, str]] = {
     ("/loans/{loan_id}/repay", "POST"),
+    # Staff recording a payment the borrower made (cash/M-Pesa/bank) — the
+    # usual way borrowers actually pay, so it must stay open too.
+    ("/loans/{loan_id}/payments", "POST"),
 }
 
 _CREDENTIALS_EXCEPTION = HTTPException(

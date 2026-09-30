@@ -13,7 +13,7 @@ from .profile import KYCStatus, Profile
 from .referee import Referee
 from .repayment_schedule import RepaymentSchedule
 from .security import Security
-from .transaction import Transaction, TransactionType
+from .transaction import PaymentMethod, Transaction, TransactionType
 from .user import User, UserRole
 
 __all__ = [
@@ -43,6 +43,7 @@ __all__ = [
     "ReviewDecision",
     "ReviewStage",
     "Security",
+    "PaymentMethod",
     "Transaction",
     "TransactionType",
     "User",

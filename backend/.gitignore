@@ -6,3 +6,7 @@ dev.db
 *.db
 .env
 storage/
+
+# Local run logs and ad-hoc database backups (dev.db.bak-*) never belong in git.
+*.log
+*.db.bak*

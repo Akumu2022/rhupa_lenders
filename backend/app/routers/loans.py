@@ -5,20 +5,22 @@ the customer still chooses a product and amount, and the guard is enforced
 here server-side, not just by hiding the button in the UI.
 """
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import update
 from sqlmodel import Session, select
 
 from ..audit import write_audit
 from ..db import get_session
 from ..db_helpers import get_or_404
 from ..deps import get_current_user, require_role
+from ..loan_analytics import in_scope, scope_for
 from ..loan_delinquency import sync_loan_delinquency
-from ..time_utils import as_utc
+from ..repayments import record_repayment
+from ..time_utils import as_utc, business_today
 from ..models import (
+    PaymentMethod,
     ApplicationStatus,
     AuditAction,
     KYCStatus,
@@ -28,12 +30,12 @@ from ..models import (
     LoanStatus,
     Profile,
     RepaymentSchedule,
-    Transaction,
-    TransactionType,
     User,
     UserRole,
 )
 from ..schemas.loan import (
+    ReceiptResponse,
+    StaffPaymentRequest,
     CustomerCreditSummaryResponse,
     CustomerLoanResponse,
     LoanApplicationCreateRequest,
@@ -49,9 +51,6 @@ from ..schemas.loan import (
 # unpaid debt (CLAUDE.md §19) — they must count too, not just active.
 _OUTSTANDING_LOAN_STATUSES = {LoanStatus.approved, LoanStatus.active, LoanStatus.overdue, LoanStatus.defaulted}
 
-# CLAUDE.md §6: repayment stays open by default even once a loan has slipped
-# into delinquency — don't trap a borrower who's trying to catch up.
-_REPAYABLE_LOAN_STATUSES = {LoanStatus.active, LoanStatus.overdue, LoanStatus.defaulted}
 
 # CLAUDE.md §26 (M13): the two "still being decided" statuses — a customer
 # may not submit a second application while one is anywhere in this chain.
@@ -242,7 +241,7 @@ def get_my_loans(
     )
     available_credit = max(loan_limit - outstanding_total, Decimal("0.00"))
 
-    today = date.today()
+    today = business_today()
     has_overdue_installment = False
     loan_responses: list[CustomerLoanResponse] = []
     for loan in loans:
@@ -309,73 +308,65 @@ def repay_loan(
     if loan.customer_id != customer.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found")
 
-    if loan.status not in _REPAYABLE_LOAN_STATUSES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Loan is not open for repayment")
-
-    if body.amount > loan.outstanding_balance:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Amount exceeds outstanding balance")
-
-    new_balance = loan.outstanding_balance - body.amount
-    # A partial payment doesn't change delinquency status here — the next
-    # sync_loan_delinquency() call (e.g. this same customer's next GET
-    # /loans/me) recomputes overdue/active from the schedule, which is the
-    # single source of truth for that (CLAUDE.md §19). A partially-paid
-    # defaulted loan stays defaulted until fully repaid or an override.
-    new_status = LoanStatus.repaid if new_balance <= Decimal("0.00") else loan.status
-
-    # CLAUDE.md §14: compare-and-set on both status AND the balance being
-    # decremented — the second concurrent repayment for the same loan sees a
-    # rowcount of 0 and gets a 409 instead of silently double-spending it.
-    result = session.execute(
-        update(Loan)
-        .where(
-            Loan.id == loan_id,
-            Loan.status == loan.status,
-            Loan.outstanding_balance == loan.outstanding_balance,
-        )
-        .values(status=new_status, outstanding_balance=new_balance)
+    transaction = record_repayment(
+        session, loan=loan, amount=body.amount, actor=customer, method=PaymentMethod.customer_portal
     )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Loan balance changed, please retry")
-
-    remaining = body.amount
-    schedule = session.exec(
-        select(RepaymentSchedule)
-        .where(RepaymentSchedule.loan_id == loan_id, RepaymentSchedule.is_paid.is_(False))
-        .order_by(RepaymentSchedule.installment_number)
-    ).all()
-    for installment in schedule:
-        if remaining <= Decimal("0.00"):
-            break
-        applied = min(remaining, installment.amount_due - installment.amount_paid)
-        installment.amount_paid += applied
-        if installment.amount_paid >= installment.amount_due:
-            installment.is_paid = True
-        remaining -= applied
-        session.add(installment)
-
-    session.add(
-        Transaction(
-            loan_id=loan.id,
-            customer_id=customer.id,
-            company_id=customer.company_id,
-            type=TransactionType.repayment,
-            amount=body.amount,
-        )
-    )
-    write_audit(
-        session,
-        actor=customer,
-        action=AuditAction.LOAN_REPAY.value,
-        entity_type="Loan",
-        entity_id=loan_id,
-        company_id=customer.company_id,
-    )
-    session.commit()
-
+    session.refresh(loan)
     return RepaymentResponse(
         loan_id=loan_id,
-        amount_paid_now=body.amount,
-        outstanding_balance=new_balance,
-        status=new_status.value,
+        amount_paid_now=transaction.amount,
+        outstanding_balance=loan.outstanding_balance,
+        status=loan.status.value,
+    )
+
+
+@router.post("/loans/{loan_id}/payments", response_model=ReceiptResponse, status_code=status.HTTP_201_CREATED)
+def record_staff_payment(
+    loan_id: int,
+    body: StaffPaymentRequest,
+    session: Session = Depends(get_session),
+    staff: User = Depends(require_role(UserRole.cashier_finance_officer, UserRole.credit_officer)),
+) -> ReceiptResponse:
+    """Record money a staff member received for a loan (cash at the branch,
+    M-Pesa to the company, bank deposit). Borrowers mostly pay this way, not
+    through the customer portal. Same balance/schedule/ledger/audit path as
+    self-service repayment (app/repayments.py); an M-Pesa or bank reference
+    can only ever be recorded once per company.
+
+    Credit officers are limited to loans in their own branch (the same scope
+    as their loans list); the cashier is company-wide. On the suspension
+    allow-list: a suspended company's borrowers can still pay (CLAUDE.md §6).
+    """
+    loan = get_or_404(session, Loan, loan_id, detail="Loan not found")
+    application = session.get(LoanApplication, loan.application_id)
+    if application is None or not in_scope(application, scope_for(staff)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found")
+
+    transaction = record_repayment(
+        session,
+        loan=loan,
+        amount=body.amount,
+        actor=staff,
+        method=PaymentMethod(body.method),
+        reference=body.reference,
+        notes=body.notes,
+    )
+    session.refresh(loan)
+    customer = session.get(User, loan.customer_id)
+    product = session.get(LoanProduct, loan.loan_product_id)
+    return ReceiptResponse(
+        transaction_id=transaction.id,
+        receipt_number=transaction.receipt_number,
+        loan_id=loan.id,
+        application_id=loan.application_id,
+        customer_full_name=customer.full_name,
+        loan_product_name=product.name,
+        amount=transaction.amount,
+        method=transaction.method.value,
+        reference=transaction.reference,
+        notes=transaction.notes,
+        received_by_name=staff.full_name,
+        received_at=transaction.created_at,
+        outstanding_balance_after=loan.outstanding_balance,
+        loan_status=loan.status.value,
     )

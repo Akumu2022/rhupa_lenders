@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from sqlmodel import Session, select
 
+from app.time_utils import business_today
 from app.models import AuditLog, RepaymentSchedule
 from app.tenancy import tenant_context
 from tests.test_disbursement_and_repayment import _auth_headers, _setup_approved_loan
@@ -20,7 +21,7 @@ def _backdate_schedule(engine, company_id, loan_id, days_ago=5):
     with Session(engine) as session:
         with tenant_context(company_id):
             schedule = session.exec(select(RepaymentSchedule).where(RepaymentSchedule.loan_id == loan_id)).first()
-            schedule.due_date = date.today() - timedelta(days=days_ago)
+            schedule.due_date = business_today() - timedelta(days=days_ago)
             session.add(schedule)
             session.commit()
 

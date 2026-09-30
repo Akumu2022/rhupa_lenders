@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from sqlmodel import Session, select
 
+from app.time_utils import business_today
 from app.application_review import check_no_self_approval
 from app.models import ApplicationReviewStage, AuditLog, Loan, RepaymentSchedule, ReviewDecision, ReviewStage, User
 from app.tenancy import tenant_context
@@ -244,7 +245,7 @@ def test_branch_manager_approve_creates_loan_and_repayment_schedule(client, engi
     assert loan.total_repayable == Decimal("5250.00")
     assert loan.outstanding_balance == Decimal("5250.00")
     assert len(schedule) == 1
-    assert schedule[0].due_date == date.today() + timedelta(days=30)
+    assert schedule[0].due_date == business_today() + timedelta(days=30)
 
     queue_resp = client.get("/branch-manager/queue", headers=_auth_headers(ctx["manager_token"]))
     assert queue_resp.json() == []

@@ -16,17 +16,17 @@ on-demand recompute, for the identical reason — one central place, no
 scheduler yet, rather than a second job with its own cadence.
 """
 
-from datetime import date
 
 from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .loan_calculation import apply_daily_penalties
 from .models import Loan, LoanProduct, LoanStatus, RepaymentSchedule
+from .time_utils import business_today
 
 
 def sync_loan_delinquency(session: Session) -> None:
-    today = date.today()
+    today = business_today()
     overdue_loan_ids = list(
         session.exec(
             select(RepaymentSchedule.loan_id).where(

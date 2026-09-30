@@ -4,6 +4,7 @@ aggregates built on the same shared computation as /admin/portfolio/*.
 
 from sqlmodel import Session, select
 
+from app.time_utils import business_today
 from app.models import Loan
 from app.tenancy import tenant_context
 from tests.conftest import create_branch
@@ -102,7 +103,7 @@ def test_management_reports_is_tenant_isolated(client, engine):
 
     from datetime import date, timedelta
 
-    today = date.today()
+    today = business_today()
     resp = client.get(
         "/management/reports",
         params={"start_date": (today - timedelta(days=1)).isoformat(), "end_date": today.isoformat()},

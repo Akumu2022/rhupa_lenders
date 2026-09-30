@@ -22,6 +22,7 @@ from ..db_helpers import get_or_404
 from ..deps import require_role
 from ..loan_calculation import generate_schedule
 from ..loan_delinquency import sync_loan_delinquency
+from ..time_utils import business_today
 from ..models import (
     ApplicationStatus,
     AuditAction,
@@ -90,7 +91,7 @@ def create_loan_for_application(
         interest_model=product.interest_model,
         term_days=product.repayment_period_days,
         installment_count=product.installment_count,
-        start_date=date.today(),
+        start_date=business_today(),
     )
     total_repayable = schedule_result.total_repayable
 
@@ -235,7 +236,7 @@ def get_collections_queue(
         .order_by(Loan.id)
     ).all()
 
-    today = date.today()
+    today = business_today()
     loan_ids = [loan.id for loan, _, _ in loan_rows]
     earliest_overdue_by_loan: dict[int, date] = {}
     if loan_ids:

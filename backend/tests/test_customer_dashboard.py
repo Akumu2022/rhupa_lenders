@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from sqlmodel import Session, select
 
+from app.time_utils import business_today
 from app.models import RepaymentSchedule, User
 from app.tenancy import tenant_context
 from tests.conftest import create_branch, seed_super_admin
@@ -215,7 +216,7 @@ def test_standing_flips_to_attention_needed_when_installment_is_overdue(client, 
     with Session(engine) as session:
         with tenant_context(ctx["company"]["id"]):
             schedule = session.exec(select(RepaymentSchedule)).first()
-            schedule.due_date = date.today() - timedelta(days=1)
+            schedule.due_date = business_today() - timedelta(days=1)
             session.add(schedule)
             session.commit()
 

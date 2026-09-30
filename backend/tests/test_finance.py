@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 from sqlmodel import Session, select
 
+from app.time_utils import business_today
 from app.models import Loan
 from app.tenancy import tenant_context
 from tests.test_credit import _auth_headers, _setup_company_with_branch_review_application
@@ -68,7 +69,7 @@ def test_reports_endpoint_is_parameterized_by_date_range(client, engine):
     ctx = _setup_company_with_branch_review_application(client, engine, include_finance=True)
     _approve_and_disburse(client, engine, ctx)
 
-    today = date.today()
+    today = business_today()
     resp = client.get(
         "/finance/reports",
         params={"start_date": (today - timedelta(days=1)).isoformat(), "end_date": today.isoformat()},
@@ -93,7 +94,7 @@ def test_reports_endpoint_is_parameterized_by_date_range(client, engine):
 
 def test_reports_rejects_inverted_date_range(client, engine):
     ctx = _setup_company_with_branch_review_application(client, engine, include_finance=True)
-    today = date.today()
+    today = business_today()
     resp = client.get(
         "/finance/reports",
         params={"start_date": today.isoformat(), "end_date": (today - timedelta(days=1)).isoformat()},

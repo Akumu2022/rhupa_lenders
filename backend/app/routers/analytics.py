@@ -20,6 +20,7 @@ from ..loan_analytics import (
     scope_for,
 )
 from ..models import LoanApplication, User, UserRole
+from ..time_utils import business_today
 from ..schemas.analytics import ApplicationListItem, DashboardResponse, TimelineResponse
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -53,7 +54,7 @@ def get_dashboard(
     session: Session = Depends(get_session),
     user: User = Depends(require_role(*_DASHBOARD_ROLES)),
 ) -> dict:
-    today = date.today()
+    today = business_today()
     # Default range: month to date.
     start = start or today.replace(day=1)
     end = end or today
