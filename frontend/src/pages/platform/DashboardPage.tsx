@@ -4,6 +4,60 @@ import { AppShell } from "../../components/AppShell";
 import { Badge, Card, EmptyState, HeroStat, LinkTile, PageHeader, SectionLabel, StatCard } from "../../components/ui";
 import type { CompanyResponse } from "../../schemas/company";
 
+// Mirrors backend app/routers/platform_security.py.
+interface DatabaseSecurity {
+  database: string;
+  role: string | null;
+  role_bypasses_rls: boolean | null;
+  enforced: boolean;
+  tables: { table: string; has_policy: boolean; rls_enabled: boolean; rls_forced: boolean }[];
+}
+
+/** Is Postgres itself enforcing company separation (row-level security)?
+ * The database-level backstop behind the app's own tenant filter. */
+function DatabaseSecurityCard() {
+  const query = useQuery({
+    queryKey: ["platform", "security"],
+    queryFn: () => apiRequest<DatabaseSecurity>("/platform/security"),
+  });
+  const s = query.data;
+  if (!s) return null;
+  const forced = s.tables.filter((t) => t.rls_forced).length;
+  const withPolicy = s.tables.filter((t) => t.has_policy && t.rls_enabled).length;
+  return (
+    <Card className="mt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SectionLabel>Database-level company separation</SectionLabel>
+        {s.enforced ? (
+          <Badge tone="success">Enforced by the database</Badge>
+        ) : (
+          <Badge tone="warning">App-level only</Badge>
+        )}
+      </div>
+      {s.database !== "postgresql" ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Not applicable on {s.database} (development database).</p>
+      ) : (
+        <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">App database role</dt>
+            <dd className="font-medium text-slate-900 dark:text-slate-50">
+              {s.role} {s.role_bypasses_rls ? <Badge tone="danger">bypasses RLS</Badge> : <Badge tone="success">subject to RLS</Badge>}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Tables with the separation rule</dt>
+            <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-50">{withPolicy} / {s.tables.length}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500 dark:text-slate-400">Tables where it is enforced</dt>
+            <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-50">{forced} / {s.tables.length}</dd>
+          </div>
+        </dl>
+      )}
+    </Card>
+  );
+}
+
 export function PlatformDashboardPage() {
   const companiesQuery = useQuery({
     queryKey: ["platform", "companies"],
@@ -32,6 +86,8 @@ export function PlatformDashboardPage() {
           <StatCard label="Active" value={active} tone="success" />
         </div>
       </div>
+
+      <DatabaseSecurityCard />
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="lg:col-span-7">

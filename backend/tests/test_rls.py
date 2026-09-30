@@ -102,3 +102,25 @@ def test_update_cannot_reach_another_companys_row(engine):
     with tenant_context(a), engine.begin() as conn:
         changed = conn.execute(text("UPDATE loanproduct SET name = 'hijacked' WHERE company_id = :b"), {"b": b}).rowcount
     assert changed == 0
+
+
+def _platform_token(client, engine):
+    from tests.conftest import seed_super_admin
+    from tests.test_credit import _login
+
+    seed_super_admin(engine, email="platform@rupha.example.com", password="platform-pass-1")
+    return _login(client, "platform@rupha.example.com", "platform-pass-1")
+
+
+def test_security_status_is_super_admin_only(client, engine):
+    token = _platform_token(client, engine)
+    resp = client.get("/platform/security", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    body = resp.json()
+    if TEST_DATABASE_URL:
+        # CI's Postgres: ordinary role, policies forced on every table.
+        assert body["role_bypasses_rls"] is False
+        assert body["enforced"] is True
+        assert {t["table"] for t in body["tables"]} == set(TENANT_TABLES)
+    else:
+        assert body == {"database": "sqlite", "role": None, "role_bypasses_rls": None, "enforced": False, "tables": []}

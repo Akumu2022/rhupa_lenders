@@ -10,6 +10,7 @@ from .routers import (
     admin,
     analytics,
     auth,
+    platform_security,
     branch_assignment,
     branch_manager,
     committee,
@@ -65,6 +66,7 @@ app.include_router(mfa.router)
 app.include_router(admin.router)
 app.include_router(company_info.router)
 app.include_router(platform.router)
+app.include_router(platform_security.router)
 app.include_router(staff.router)
 app.include_router(signup.router)
 app.include_router(profile.router)
