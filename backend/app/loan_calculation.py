@@ -167,9 +167,12 @@ def _penalty_cap(loan: Loan, product: LoanProduct) -> Decimal:
     return round_money(loan.principal * product.penalty_cap_ratio)
 
 
-def apply_daily_penalties(session: Session, loan: Loan, product: LoanProduct, *, today: Optional[date] = None) -> None:
+def apply_daily_penalties(
+    session: Session, loan: Loan, product: LoanProduct, *, today: Optional[date] = None
+) -> Decimal:
     """CLAUDE.md §23: an overdue loan accrues a penalty for each day past the
-    product's grace period, capped so interest + penalties never exceed
+    product's grace period, charged on the overdue instalment amount only
+    (no compounding, Finance decision), capped so interest + penalties never exceed
     `penalty_cap_ratio` of principal (the DEV placeholder's safety mechanism
     against the "1%/day is runaway/predatory, uncapped" warning). Each day's
     penalty is its OWN ledger (Transaction) + audit (AuditLog) row — the owed
@@ -183,28 +186,42 @@ def apply_daily_penalties(session: Session, loan: Loan, product: LoanProduct, *,
     on the same day applies nothing the second time.
     """
     if product.penalty_type != PenaltyType.percentage_per_day:
-        return  # only one penalty type implemented for now
+        return _ZERO  # only one penalty type implemented for now
 
     today = today or business_today()
 
-    earliest_overdue_due_date = session.exec(
-        select(RepaymentSchedule.due_date)
-        .where(
-            RepaymentSchedule.loan_id == loan.id,
-            RepaymentSchedule.is_paid.is_(False),
-            RepaymentSchedule.due_date < today,
-        )
-        .order_by(RepaymentSchedule.due_date)
-    ).first()
-    if earliest_overdue_due_date is None:
-        return
+    overdue_installments = list(
+        session.exec(
+            select(RepaymentSchedule)
+            .where(
+                RepaymentSchedule.loan_id == loan.id,
+                RepaymentSchedule.is_paid.is_(False),
+                RepaymentSchedule.due_date < today,
+            )
+            .order_by(RepaymentSchedule.due_date)
+        ).all()
+    )
+    if not overdue_installments:
+        return _ZERO
+    earliest_overdue_due_date = overdue_installments[0].due_date
+    grace = timedelta(days=product.grace_period_days)
 
-    first_penalty_date = earliest_overdue_due_date + timedelta(days=product.grace_period_days)
+    def penalty_base(day: date) -> Decimal:
+        """The overdue instalment amount only (Finance decision): what is
+        still unpaid on instalments already past their own grace period on
+        `day`. Never the whole loan balance, and never earlier penalties, so
+        penalties do not compound."""
+        return sum(
+            (max(i.amount_due - i.amount_paid, _ZERO) for i in overdue_installments if i.due_date + grace <= day),
+            _ZERO,
+        )
+
+    first_penalty_date = earliest_overdue_due_date + grace
     start_date = first_penalty_date
     if loan.last_penalty_check_date is not None and loan.last_penalty_check_date >= start_date:
         start_date = loan.last_penalty_check_date + timedelta(days=1)
     if start_date > today:
-        return  # still within grace, or already caught up today
+        return _ZERO  # still within grace, or already caught up today
 
     base_interest = loan.total_repayable - loan.principal
     cap = _penalty_cap(loan, product)
@@ -218,7 +235,7 @@ def apply_daily_penalties(session: Session, loan: Loan, product: LoanProduct, *,
         headroom = max(cap - (base_interest + running_penalties), _ZERO)
         if headroom <= _ZERO:
             break
-        day_penalty = min(round_money(running_outstanding * product.penalty_rate / Decimal("100")), headroom)
+        day_penalty = min(round_money(penalty_base(day) * product.penalty_rate / Decimal("100")), headroom)
         if day_penalty <= _ZERO:
             break
         daily_amounts.append((day, day_penalty))
@@ -244,7 +261,7 @@ def apply_daily_penalties(session: Session, loan: Loan, product: LoanProduct, *,
         )
     )
     if result.rowcount == 0 or not daily_amounts:
-        return
+        return _ZERO
 
     for applied_day, amount in daily_amounts:
         session.add(
@@ -267,3 +284,4 @@ def apply_daily_penalties(session: Session, loan: Loan, product: LoanProduct, *,
             ),
             company_id=loan.company_id,
         )
+    return sum((amount for _, amount in daily_amounts), _ZERO)

@@ -922,7 +922,13 @@ THE money-critical module. "Roughly right" is unacceptable.
 ### DEV PLACEHOLDER FIGURES — **NOT FINAL. To be revised by FINANCE after review.**
 > Development placeholders only. Live as per-product CONFIG (not hard-coded), so Finance's revised
 > numbers are a config change, not code.
-- **Penalty rate: 1% per day** on the overdue amount. *(DEV placeholder.)*
+- **Penalty rate: 1% per day** on the overdue amount. *(DEV placeholder.)* The base is the
+  **overdue instalment amount only** — what is still unpaid on instalments past their own grace
+  period — never the whole loan balance and never earlier penalties, so penalties do **not**
+  compound. *(Confirmed by Finance, 2026-09-30.)*
+- **Repayment allocation order: penalties → interest → principal** (the standard for Kenyan
+  lenders; within the schedule, oldest instalment first, interest before principal inside each).
+  Implemented once in `app/repayments.py::allocate_payment`. *(Confirmed by Finance, 2026-09-30.)*
 - **Grace period: 3 days** — penalties begin day 4 (due_date + 3); per-product, default 3. *(DEV placeholder.)*
 - **Penalty cap: 100% of principal** (interest + penalties ≤ principal); accrual STOPS at the ceiling.
   *(DEV placeholder — MUST confirm current CBK DCP cap before production.)*

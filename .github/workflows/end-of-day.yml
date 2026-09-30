@@ -1,0 +1,36 @@
+# Daily end-of-day run: overdue status + penalty accrual for every company's
+# loans (app/end_of_day.py). Scheduled from GitHub rather than inside the app
+# because Render's free plan sleeps when idle; this call also wakes it.
+#
+# Needs the repository secret CRON_SECRET, set to the same value as the
+# CRON_SECRET environment variable on the Render backend service.
+name: End of day
+
+on:
+  schedule:
+    - cron: "5 21 * * *" # 21:05 UTC = 00:05 Africa/Nairobi
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the secret is configured
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Repository secret CRON_SECRET is not set"
+            exit 1
+          fi
+      - name: Call the end-of-day endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # Retries cover the free-plan cold start (the first request wakes the
+        # server and can take a minute). Safe to repeat: penalties are applied
+        # at most once per loan per day.
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --retry 6 --retry-delay 20 --retry-all-errors --max-time 120 \
+            -X POST -H "X-Cron-Secret: $CRON_SECRET" \
+            https://rhupa-backend.onrender.com/internal/end-of-day

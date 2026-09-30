@@ -14,6 +14,10 @@ class Settings:
     # tenant is in the Kenyan market, CLAUDE.md §1).
     business_timezone: str = os.environ.get("BUSINESS_TIMEZONE", "Africa/Nairobi")
 
+    # Shared secret for scheduled jobs calling /internal/* (the daily
+    # end-of-day run). Unset = those endpoints are disabled (404).
+    cron_secret: str = os.environ.get("CRON_SECRET", "")
+
     # CLAUDE.md §2: access tokens are short-lived, no refresh-token flow in the MVP.
     jwt_secret_key: str = os.environ.get("JWT_SECRET_KEY", "dev-only-insecure-secret-change-me")
     jwt_algorithm: str = "HS256"

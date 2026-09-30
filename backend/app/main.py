@@ -18,6 +18,7 @@ from .routers import (
     customers,
     finance,
     guarantors,
+    internal,
     loans,
     management,
     mfa,
@@ -59,6 +60,7 @@ app.include_router(committee.router)
 app.include_router(finance.router)
 app.include_router(management.router)
 app.include_router(analytics.router)
+app.include_router(internal.router)
 
 
 @app.get("/health")

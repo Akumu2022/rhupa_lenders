@@ -51,12 +51,12 @@ def test_loan_becomes_overdue_after_due_date_passes(client, engine):
     assert loans_me["loans"][0]["status"] == "overdue"
     # Still counts against the customer's available credit (CLAUDE.md §19).
     # 5 days overdue, 3-day grace (CLAUDE.md §23 DEV placeholder) => 3 days of
-    # 1%/day penalty, compounding on the owed amount:
-    #   5250.00 -> +52.50 -> 5302.50 -> +53.03 -> 5355.53 -> +53.56 -> 5409.09
-    # loan_limit (200000, the Business product's max) minus that 5409.09.
-    assert loans_me["loans"][0]["penalties_accrued"] == "159.09"
-    assert loans_me["loans"][0]["outstanding_balance"] == "5409.09"
-    assert loans_me["available_credit"] == "194590.91"
+    # 1%/day penalty on the overdue instalment only (no compounding):
+    #   3 x 52.50 = 157.50, so 5250.00 + 157.50 = 5407.50 owed.
+    # loan_limit (200000, the Business product's max) minus that 5407.50.
+    assert loans_me["loans"][0]["penalties_accrued"] == "157.50"
+    assert loans_me["loans"][0]["outstanding_balance"] == "5407.50"
+    assert loans_me["available_credit"] == "194592.50"
 
 
 def test_collections_queue_lists_overdue_loans_and_is_tenant_scoped(client, engine):
@@ -146,10 +146,10 @@ def test_repayment_allowed_on_overdue_and_defaulted_loans(client, engine):
 
     # CLAUDE.md §23: 5 days overdue, 3-day grace => 3 penalty days accrued
     # (see test_loan_becomes_overdue_after_due_date_passes for the exact
-    # compounding), so the full amount owed is now 5409.09, not just 5250.00.
+    # figures), so the full amount owed is now 5407.50, not just 5250.00.
     resp = client.post(
         f"/loans/{loan_id}/repay",
-        json={"amount": "5409.09"},
+        json={"amount": "5407.50"},
         headers=_auth_headers(ctx["customer_token"]),
     )
     assert resp.status_code == 200, resp.text

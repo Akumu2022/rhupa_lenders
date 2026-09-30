@@ -211,7 +211,7 @@ def test_no_penalty_within_grace_period(session):
     assert loan.outstanding_balance == Decimal("5250.00")
 
 
-def test_penalty_applied_per_day_past_grace_and_compounds(session):
+def test_penalty_applied_per_day_past_grace_on_overdue_instalment_only(session):
     product = _product()
     loan = _loan()
     session.add(product)
@@ -232,17 +232,62 @@ def test_penalty_applied_per_day_past_grace_and_compounds(session):
     session.commit()
     session.refresh(loan)
 
-    # Day 1: 5250.00 * 1% = 52.50 -> 5302.50
-    # Day 2: 5302.50 * 1% = 53.025 -> round half up -> 53.03 -> 5355.53
-    # Day 3: 5355.53 * 1% = 53.5553 -> 53.56 -> 5409.09
-    assert loan.penalties_accrued == Decimal("159.09")
-    assert loan.outstanding_balance == Decimal("5409.09")
+    # Charged on the overdue instalment (5250.00) only, never on earlier
+    # penalties: 3 days x 52.50 = 157.50, the same amount every day.
+    assert loan.penalties_accrued == Decimal("157.50")
+    assert loan.outstanding_balance == Decimal("5407.50")
 
     penalty_transactions = session.exec(
         select(Transaction).where(Transaction.type == "penalty")
     ).all()
     assert len(penalty_transactions) == 3
-    assert sum((t.amount for t in penalty_transactions), Decimal("0.00")) == Decimal("159.09")
+    assert {t.amount for t in penalty_transactions} == {Decimal("52.50")}
+
+
+def test_penalty_base_is_only_instalments_past_their_own_grace(session):
+    product = _product()
+    loan = _loan()
+    session.add(product)
+    session.add(loan)
+    session.flush()
+    for n, due in ((1, date(2026, 1, 1)), (2, date(2026, 1, 8))):
+        session.add(
+            RepaymentSchedule(
+                loan_id=loan.id, company_id=1, installment_number=n, due_date=due,
+                amount_due=Decimal("2625.00"), principal_component=Decimal("2500.00"),
+                interest_component=Decimal("125.00"),
+            )
+        )
+    session.flush()
+
+    # Instalment 1 is penalisable from Jan 4, instalment 2 from Jan 11.
+    # Jan 4..10 = 7 days x 26.25; Jan 11..12 = 2 days x 52.50.
+    apply_daily_penalties(session, loan, product, today=date(2026, 1, 12))
+    session.commit()
+    session.refresh(loan)
+    assert loan.penalties_accrued == Decimal("7") * Decimal("26.25") + Decimal("2") * Decimal("52.50")
+
+
+def test_partial_payment_shrinks_the_penalty_base(session):
+    product = _product()
+    loan = _loan()
+    session.add(product)
+    session.add(loan)
+    session.flush()
+    session.add(
+        RepaymentSchedule(
+            loan_id=loan.id, company_id=1, installment_number=1, due_date=date(2026, 1, 1),
+            amount_due=Decimal("5250.00"), amount_paid=Decimal("3250.00"),
+            principal_component=Decimal("5000.00"), interest_component=Decimal("250.00"),
+        )
+    )
+    session.flush()
+
+    # 2000.00 still unpaid on the instalment -> 20.00/day, Jan 4 only.
+    apply_daily_penalties(session, loan, product, today=date(2026, 1, 4))
+    session.commit()
+    session.refresh(loan)
+    assert loan.penalties_accrued == Decimal("20.00")
 
 
 def test_penalty_application_is_idempotent_for_the_same_day(session):

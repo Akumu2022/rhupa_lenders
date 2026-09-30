@@ -42,6 +42,7 @@ class AuditAction(str, enum.Enum):
     LOAN_REPAY = "loan.repay"
     LOAN_PAYMENT_RECORDED = "loan.payment_recorded"
     LOAN_PENALTY_APPLIED = "loan.penalty_applied"
+    END_OF_DAY_RUN = "system.end_of_day"
     CUSTOMER_REGISTER = "customer.register"
     REFEREE_ADD = "referee.add"
     BUSINESS_ASSESSMENT_CREATE = "business_assessment.create"

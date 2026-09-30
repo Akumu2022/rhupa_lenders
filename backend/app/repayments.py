@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .audit import write_audit
+from .time_utils import business_today
 from .models import (
     AuditAction,
     Company,
@@ -189,6 +190,24 @@ def record_repayment(
         if installment.amount_paid >= installment.amount_due:
             installment.is_paid = True
         session.add(installment)
+
+    # A payment that clears every past-due instalment brings an overdue loan
+    # back to active straight away, instead of waiting for the next
+    # delinquency sync. (Defaulted stays defaulted: that is a staff decision.)
+    if new_status == LoanStatus.overdue:
+        still_past_due = session.exec(
+            select(RepaymentSchedule.id).where(
+                RepaymentSchedule.loan_id == loan.id,
+                RepaymentSchedule.is_paid.is_(False),
+                RepaymentSchedule.due_date < business_today(),
+            )
+        ).first()
+        if still_past_due is None:
+            session.execute(
+                update(Loan)
+                .where(Loan.id == loan.id, Loan.status == LoanStatus.overdue)
+                .values(status=LoanStatus.active)
+            )
 
     is_staff = actor.id != loan.customer_id
     transaction = Transaction(

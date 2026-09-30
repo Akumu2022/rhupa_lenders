@@ -17,6 +17,9 @@ scheduler yet, rather than a second job with its own cadence.
 """
 
 
+from dataclasses import dataclass
+from decimal import Decimal
+
 from sqlalchemy import update
 from sqlmodel import Session, select
 
@@ -25,8 +28,16 @@ from .models import Loan, LoanProduct, LoanStatus, RepaymentSchedule
 from .time_utils import business_today
 
 
-def sync_loan_delinquency(session: Session) -> None:
+@dataclass
+class SyncResult:
+    newly_overdue: int = 0
+    back_to_active: int = 0
+    penalty_total: Decimal = Decimal("0.00")
+
+
+def sync_loan_delinquency(session: Session) -> SyncResult:
     today = business_today()
+    result = SyncResult()
     overdue_loan_ids = list(
         session.exec(
             select(RepaymentSchedule.loan_id).where(
@@ -36,22 +47,22 @@ def sync_loan_delinquency(session: Session) -> None:
     )
 
     if overdue_loan_ids:
-        session.execute(
+        result.newly_overdue = session.execute(
             update(Loan)
             .where(Loan.status == LoanStatus.active, Loan.id.in_(overdue_loan_ids))
             .values(status=LoanStatus.overdue)
-        )
+        ).rowcount
 
     # Demote back to active any loan currently flagged overdue that no longer
     # has an overdue unpaid installment (e.g. it was just paid off).
     still_overdue_subquery = select(RepaymentSchedule.loan_id).where(
         RepaymentSchedule.is_paid.is_(False), RepaymentSchedule.due_date < today
     )
-    session.execute(
+    result.back_to_active = session.execute(
         update(Loan)
         .where(Loan.status == LoanStatus.overdue, Loan.id.not_in(still_overdue_subquery))
         .values(status=LoanStatus.active)
-    )
+    ).rowcount
 
     if overdue_loan_ids:
         overdue_loans = session.exec(
@@ -60,6 +71,7 @@ def sync_loan_delinquency(session: Session) -> None:
         for loan in overdue_loans:
             product = session.get(LoanProduct, loan.loan_product_id)
             if product is not None:
-                apply_daily_penalties(session, loan, product, today=today)
+                result.penalty_total += apply_daily_penalties(session, loan, product, today=today)
 
     session.commit()
+    return result

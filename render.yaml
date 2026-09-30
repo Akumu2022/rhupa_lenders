@@ -20,6 +20,11 @@ services:
         generateValue: true
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: "45"
+      # Shared secret for the daily end-of-day job (.github/workflows/
+      # end-of-day.yml). Set it here AND as the GitHub repository secret
+      # CRON_SECRET, same value. Unset = the endpoint is disabled.
+      - key: CRON_SECRET
+        sync: false
       # Set to your deployed Vercel frontend URL, e.g.
       # https://rhupa-lenders.vercel.app (no trailing slash).
       - key: CORS_ALLOWED_ORIGINS
