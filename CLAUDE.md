@@ -465,8 +465,10 @@ Every reviewable entity carries: status enum + `reviewed_by` (FK staff user) + `
   regenerate signup code) — carries no `company_id` or a platform marker.
 - **"Append-only" is enforced, not just named.** No route, service function, or admin screen ever
   issues `UPDATE`/`DELETE` against `AuditLog` — there is no code path that can, because none is
-  written. On the Postgres deploy, the app's DB role additionally has no `UPDATE`/`DELETE` grant
-  on the table, so even a bug can't silently rewrite history.
+  written. The database additionally refuses it: `BEFORE UPDATE/DELETE/TRUNCATE` triggers on
+  `auditlog` raise an error for every role, including the table owner (a revoked grant would not
+  bind the owner, which is the app's own role on Neon). Installed on `create_all` and by
+  migration `c4f6b8d0e2a5`, so even a bug can't silently rewrite history.
 - **Hard rule:** a privileged action must **never** happen silently or unattributably.
 
 ---

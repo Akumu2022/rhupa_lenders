@@ -2,6 +2,7 @@ import enum
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import DDL, event
 from sqlmodel import Field
 
 from ..tenancy import TenantMixin
@@ -94,3 +95,32 @@ class AuditLog(TenantMixin, table=True):
     # Indexed — /admin/audit-log sorts on this (ORDER BY created_at DESC
     # LIMIT 500); senior-review finding, previously unindexed.
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+
+
+# CLAUDE.md §12: "append-only is enforced, not just named". The app never
+# issues UPDATE/DELETE against this table, and these triggers make the
+# database itself refuse them, even for the table owner (a revoked grant
+# does not bind the owner, who can re-grant itself). Installed on
+# create_all (tests, fresh databases) and by migration c4f6b8d0e2a5 on
+# existing ones; the two definitions must stay identical.
+AUDIT_APPEND_ONLY_SQLITE = [
+    "CREATE TRIGGER IF NOT EXISTS auditlog_no_update BEFORE UPDATE ON auditlog "
+    "BEGIN SELECT RAISE(ABORT, 'auditlog is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS auditlog_no_delete BEFORE DELETE ON auditlog "
+    "BEGIN SELECT RAISE(ABORT, 'auditlog is append-only'); END",
+]
+AUDIT_APPEND_ONLY_POSTGRES = [
+    "CREATE OR REPLACE FUNCTION auditlog_append_only() RETURNS trigger AS $$ "
+    "BEGIN RAISE EXCEPTION 'auditlog is append-only'; END; $$ LANGUAGE plpgsql",
+    "DROP TRIGGER IF EXISTS auditlog_no_update_delete ON auditlog",
+    "CREATE TRIGGER auditlog_no_update_delete BEFORE UPDATE OR DELETE ON auditlog "
+    "FOR EACH ROW EXECUTE FUNCTION auditlog_append_only()",
+    "DROP TRIGGER IF EXISTS auditlog_no_truncate ON auditlog",
+    "CREATE TRIGGER auditlog_no_truncate BEFORE TRUNCATE ON auditlog "
+    "FOR EACH STATEMENT EXECUTE FUNCTION auditlog_append_only()",
+]
+
+for _statement in AUDIT_APPEND_ONLY_SQLITE:
+    event.listen(AuditLog.__table__, "after_create", DDL(_statement).execute_if(dialect="sqlite"))
+for _statement in AUDIT_APPEND_ONLY_POSTGRES:
+    event.listen(AuditLog.__table__, "after_create", DDL(_statement).execute_if(dialect="postgresql"))
