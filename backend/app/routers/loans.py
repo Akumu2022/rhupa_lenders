@@ -369,4 +369,7 @@ def record_staff_payment(
         received_at=transaction.created_at,
         outstanding_balance_after=loan.outstanding_balance,
         loan_status=loan.status.value,
+        penalty_portion=transaction.penalty_portion,
+        interest_portion=transaction.interest_portion,
+        principal_portion=transaction.principal_portion,
     )

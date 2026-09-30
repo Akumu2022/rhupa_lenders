@@ -11,8 +11,9 @@ branch_id / prepared_by are ordinary hand filters (§5's explicit asymmetry).
 Money is Decimal end to end (rule #13): sums are done in Python over narrow
 row sets, never SQL SUM() on Numeric, matching app/portfolio.py.
 
-Balance split convention (same as app/portfolio.py::_principal_repaid):
-payments are allocated principal first, then base interest, then penalties.
+Balance split: read from each loan's stored running totals
+(principal_repaid / interest_repaid / penalties_repaid), which
+app/repayments.py maintains in the order penalties -> interest -> principal.
 """
 
 from dataclasses import dataclass
@@ -117,14 +118,12 @@ class BalanceSplit:
 def balance_split(loan: Loan) -> BalanceSplit:
     """CLAUDE.md §23 3-way breakdown of what's still owed."""
     interest_total = loan.total_repayable - loan.principal
-    owed_total = loan.total_repayable + loan.penalties_accrued
-    repaid = max(owed_total - loan.outstanding_balance, ZERO)
-    principal_repaid = min(loan.principal, repaid)
-    interest_repaid = min(interest_total, max(repaid - loan.principal, ZERO))
-    principal_out = loan.principal - principal_repaid
-    interest_out = interest_total - interest_repaid
-    penalties_out = max(loan.outstanding_balance - principal_out - interest_out, ZERO)
-    return BalanceSplit(principal=principal_out, interest=interest_out, penalties=penalties_out, repaid=repaid)
+    return BalanceSplit(
+        principal=max(loan.principal - loan.principal_repaid, ZERO),
+        interest=max(interest_total - loan.interest_repaid, ZERO),
+        penalties=max(loan.penalties_accrued - loan.penalties_repaid, ZERO),
+        repaid=loan.principal_repaid + loan.interest_repaid + loan.penalties_repaid,
+    )
 
 
 def installment_remaining(installment: RepaymentSchedule) -> Decimal:
@@ -658,6 +657,18 @@ def build_timeline(session: Session, application: LoanApplication, *, today: Opt
                 parts.append(txn.reference)
             if txn.receipt_number:
                 parts.append(f"Receipt {txn.receipt_number}")
+            if txn.principal_portion is not None:
+                split_parts = [
+                    f"{label} {value:,.2f}"
+                    for label, value in (
+                        ("penalties", txn.penalty_portion),
+                        ("interest", txn.interest_portion),
+                        ("principal", txn.principal_portion),
+                    )
+                    if value
+                ]
+                if split_parts:
+                    parts.append("to " + ", ".join(split_parts))
             if txn.notes:
                 parts.append(txn.notes)
             add(

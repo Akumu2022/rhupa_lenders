@@ -62,5 +62,10 @@ class Transaction(TenantMixin, table=True):
     # customer paid through their own portal.
     recorded_by: Optional[int] = Field(default=None, foreign_key="user.id")
     notes: Optional[str] = Field(default=None, max_length=500)
+    # How a repayment was split (penalties -> interest -> principal). Null on
+    # non-repayment rows and on repayments recorded before the split existed.
+    penalty_portion: Optional[Decimal] = Field(default=None, max_digits=12, decimal_places=2)
+    interest_portion: Optional[Decimal] = Field(default=None, max_digits=12, decimal_places=2)
+    principal_portion: Optional[Decimal] = Field(default=None, max_digits=12, decimal_places=2)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

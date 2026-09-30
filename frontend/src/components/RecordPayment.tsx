@@ -42,6 +42,10 @@ export interface ReceiptResponse {
   received_at: string;
   outstanding_balance_after: string;
   loan_status: string;
+  // How the payment was applied: penalties -> interest -> principal.
+  penalty_portion: string;
+  interest_portion: string;
+  principal_portion: string;
 }
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", mpesa: "M-Pesa", bank: "Bank deposit" };
@@ -151,6 +155,9 @@ function ReceiptView({
     ["Customer", receipt.customer_full_name],
     ["Loan", `${receipt.loan_product_name} (#${receipt.loan_id})`],
     ["Amount paid", formatKES(receipt.amount)],
+    ...(/^0+(\.0+)?$/.test(receipt.penalty_portion) ? [] : ([["↳ to penalties", formatKES(receipt.penalty_portion)]] as [string, string][])),
+    ["↳ to interest", formatKES(receipt.interest_portion)],
+    ["↳ to principal", formatKES(receipt.principal_portion)],
     ["Method", METHOD_LABEL[receipt.method] ?? receipt.method],
     ...(receipt.reference ? ([["Reference", receipt.reference]] as [string, string][]) : []),
     ["Balance after payment", formatKES(receipt.outstanding_balance_after)],

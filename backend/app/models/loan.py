@@ -43,6 +43,16 @@ class Loan(TenantMixin, table=True):
     penalties_accrued: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)
     last_penalty_check_date: Optional[date] = None
 
+    # Running totals of what has been repaid against each component.
+    # Allocation order (app/repayments.py): penalties -> interest ->
+    # principal, the standard for Kenyan lenders. Invariant:
+    #   outstanding_balance == (principal - principal_repaid)
+    #                        + (total_repayable - principal - interest_repaid)
+    #                        + (penalties_accrued - penalties_repaid)
+    principal_repaid: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)
+    interest_repaid: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)
+    penalties_repaid: Decimal = Field(default=Decimal("0.00"), max_digits=12, decimal_places=2)
+
     # Column width auto-sizes to the longest member ("defaulted" = 9 chars)
     # on a fresh install; an existing Postgres column from before this change
     # was VARCHAR(8) and needs its migration to widen it explicitly — unlike

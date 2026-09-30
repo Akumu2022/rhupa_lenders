@@ -81,8 +81,10 @@ def test_dashboard_totals_after_disbursement_and_repayment(client, engine):
     portfolio = body["portfolio"]
     assert portfolio["active_loans"] == 1
     assert portfolio["total_repaid_all_time"] == "2000.00"
-    # Principal-first allocation: 2000 of the 5000 principal is repaid.
-    assert portfolio["outstanding_principal"] == "3000.00"
+    # Interest before principal: of the 2000 paid, 250 clears the 5% interest
+    # and 1750 goes to principal, leaving 3250 of the 5000 principal.
+    assert portfolio["outstanding_principal"] == "3250.00"
+    assert portfolio["outstanding_interest"] == "0.00"
     assert portfolio["par_pct"] == "0.00"
     assert {a["bucket"]: a["count"] for a in body["aging"]}["current"] == 1
 

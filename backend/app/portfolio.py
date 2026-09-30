@@ -59,21 +59,10 @@ class PortfolioSummary:
 
 
 def _principal_repaid(loan_row) -> Decimal:
-    """How much of a loan's PRINCIPAL (as opposed to interest/penalties) has
-    actually been repaid — principal is repaid first in this app's
-    allocation (see app/routers/loans.py::repay_loan, which pays down
-    outstanding_balance as one figure, interest/penalties bundled in). We
-    don't track a separate principal-vs-interest split on payments, so the
-    same proportional-allocation approach app/loan_calculation.py already
-    uses for the schedule is applied here: principal repaid = min(principal,
-    total repaid so far), where total repaid = total_repayable +
-    penalties_accrued - outstanding_balance. This is the simplest
-    correct-at-the-boundaries approximation (a fully-repaid loan always
-    shows 0 outstanding principal; an undisbursed loan always shows full
-    principal outstanding) without inventing a new ledger."""
-    total_owed = loan_row.total_repayable + loan_row.penalties_accrued
-    total_repaid = total_owed - loan_row.outstanding_balance
-    return min(loan_row.principal, max(total_repaid, Decimal("0.00")))
+    """Principal actually repaid: the loan's stored running total, kept by
+    app/repayments.py (payments clear penalties, then interest, then
+    principal)."""
+    return loan_row.principal_repaid
 
 
 def compute_portfolio_summary(session: Session, *, branch_id: Optional[int] = None) -> PortfolioSummary:
@@ -97,7 +86,7 @@ def compute_portfolio_summary(session: Session, *, branch_id: Optional[int] = No
     )
     row_query = select(
         Loan.status, Loan.principal, Loan.outstanding_balance, Loan.total_repayable, Loan.penalties_accrued,
-        Loan.customer_id,
+        Loan.customer_id, Loan.principal_repaid, Loan.interest_repaid, Loan.penalties_repaid,
     )
     if branch_id is not None:
         count_query = count_query.join(User, User.id == Loan.customer_id).where(User.branch_id == branch_id)
@@ -110,8 +99,15 @@ def compute_portfolio_summary(session: Session, *, branch_id: Optional[int] = No
 
     total_disbursed = sum((r.principal for r in rows if r.status != LoanStatus.approved), Decimal("0.00"))
     outstanding_rows = [r for r in rows if r.status in outstanding_statuses]
+    # Everything actually received, penalties included (the old
+    # total_repayable - outstanding_balance undercounted it once penalties
+    # had accrued).
     total_collected = sum(
-        (r.total_repayable - r.outstanding_balance for r in rows if r.status in (*outstanding_statuses, LoanStatus.repaid)),
+        (
+            r.principal_repaid + r.interest_repaid + r.penalties_repaid
+            for r in rows
+            if r.status in (*outstanding_statuses, LoanStatus.repaid)
+        ),
         Decimal("0.00"),
     )
     active_borrowers = len({r.customer_id for r in outstanding_rows})

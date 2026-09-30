@@ -104,6 +104,10 @@ class ReceiptResponse(BaseModel):
     received_at: datetime
     outstanding_balance_after: Decimal
     loan_status: str
+    # How this payment was applied: penalties -> interest -> principal.
+    penalty_portion: Decimal
+    interest_portion: Decimal
+    principal_portion: Decimal
 
 
 class RepaymentResponse(BaseModel):

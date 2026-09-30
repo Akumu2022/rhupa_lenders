@@ -5,6 +5,7 @@ schedule allocation, the ledger row, the receipt number and the audit entry
 can never drift between the two.
 """
 
+from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Optional
 
@@ -59,6 +60,74 @@ def next_receipt_number(session: Session, company_id: int) -> str:
         session.refresh(company)
 
 
+@dataclass
+class PaymentSplit:
+    penalty: Decimal
+    interest: Decimal
+    principal: Decimal
+    # (installment, amount applied to it). Penalties never touch the
+    # schedule, which only carries principal + base interest.
+    installments: list[tuple[RepaymentSchedule, Decimal]] = field(default_factory=list)
+
+
+def _unpaid_schedule(session: Session, loan_id: int) -> list[RepaymentSchedule]:
+    return list(
+        session.exec(
+            select(RepaymentSchedule)
+            .where(RepaymentSchedule.loan_id == loan_id, RepaymentSchedule.is_paid.is_(False))
+            .order_by(RepaymentSchedule.installment_number)
+        ).all()
+    )
+
+
+def allocate_payment(loan: Loan, amount: Decimal, unpaid_schedule: list[RepaymentSchedule]) -> PaymentSplit:
+    """Penalties first, then interest, then principal: the standard order
+    for Kenyan lenders (confirmed by Finance). Within the schedule,
+    instalments are settled oldest first, and inside each instalment its
+    interest part is cleared before its principal part. Pure function (no
+    writes), so it is unit-testable on its own."""
+    remaining = amount
+    penalties_due = max(loan.penalties_accrued - loan.penalties_repaid, _ZERO)
+    to_penalty = min(remaining, penalties_due)
+    remaining -= to_penalty
+
+    to_interest = _ZERO
+    to_principal = _ZERO
+    applied: list[tuple[RepaymentSchedule, Decimal]] = []
+    for installment in unpaid_schedule:
+        if remaining <= _ZERO:
+            break
+        interest_paid_so_far = min(installment.amount_paid, installment.interest_component)
+        interest_left = max(installment.interest_component - interest_paid_so_far, _ZERO)
+        principal_left = max(installment.amount_due - installment.amount_paid - interest_left, _ZERO)
+
+        pay_interest = min(remaining, interest_left)
+        remaining -= pay_interest
+        pay_principal = min(remaining, principal_left)
+        remaining -= pay_principal
+
+        if pay_interest + pay_principal > _ZERO:
+            to_interest += pay_interest
+            to_principal += pay_principal
+            applied.append((installment, pay_interest + pay_principal))
+
+    # The caller already checked amount <= outstanding_balance, and
+    # outstanding == unpaid schedule + unpaid penalties, so nothing should be
+    # left over. If a schedule rounding cent ever leaves a remainder, it
+    # reduces principal rather than vanishing from the split.
+    to_principal += remaining
+    # Loans created before instalments carried an interest/principal split
+    # have interest_component = 0, which would read every shilling as
+    # principal. Principal can never be repaid beyond the principal itself;
+    # any excess is interest.
+    principal_room = max(loan.principal - loan.principal_repaid, _ZERO)
+    if to_principal > principal_room:
+        excess = to_principal - principal_room
+        to_principal -= excess
+        to_interest += excess
+    return PaymentSplit(penalty=to_penalty, interest=to_interest, principal=to_principal, installments=applied)
+
+
 def record_repayment(
     session: Session,
     *,
@@ -86,6 +155,7 @@ def record_repayment(
                 detail=f"Payment reference {reference} was already recorded (receipt {existing.receipt_number or existing.id})",
             )
 
+    split = allocate_payment(loan, amount, _unpaid_schedule(session, loan.id))
     new_balance = loan.outstanding_balance - amount
     # A partial payment doesn't change delinquency status here — the next
     # sync_loan_delinquency() recomputes overdue/active from the schedule,
@@ -103,25 +173,21 @@ def record_repayment(
             Loan.status == loan.status,
             Loan.outstanding_balance == loan.outstanding_balance,
         )
-        .values(status=new_status, outstanding_balance=new_balance)
+        .values(
+            status=new_status,
+            outstanding_balance=new_balance,
+            penalties_repaid=loan.penalties_repaid + split.penalty,
+            interest_repaid=loan.interest_repaid + split.interest,
+            principal_repaid=loan.principal_repaid + split.principal,
+        )
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Loan balance changed, please retry")
 
-    remaining = amount
-    schedule = session.exec(
-        select(RepaymentSchedule)
-        .where(RepaymentSchedule.loan_id == loan.id, RepaymentSchedule.is_paid.is_(False))
-        .order_by(RepaymentSchedule.installment_number)
-    ).all()
-    for installment in schedule:
-        if remaining <= _ZERO:
-            break
-        applied = min(remaining, installment.amount_due - installment.amount_paid)
+    for installment, applied in split.installments:
         installment.amount_paid += applied
         if installment.amount_paid >= installment.amount_due:
             installment.is_paid = True
-        remaining -= applied
         session.add(installment)
 
     is_staff = actor.id != loan.customer_id
@@ -136,6 +202,9 @@ def record_repayment(
         receipt_number=next_receipt_number(session, loan.company_id),
         recorded_by=actor.id if is_staff else None,
         notes=notes,
+        penalty_portion=split.penalty,
+        interest_portion=split.interest,
+        principal_portion=split.principal,
     )
     session.add(transaction)
     write_audit(
