@@ -26,7 +26,11 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 def engine():
     if TEST_DATABASE_URL:
         test_engine = create_engine(TEST_DATABASE_URL)
-        SQLModel.metadata.drop_all(test_engine)
+        # Fresh schema per test. (metadata.drop_all can't order the
+        # user <-> branch foreign-key cycle, and this is faster anyway.)
+        with test_engine.begin() as conn:
+            conn.exec_driver_sql("DROP SCHEMA public CASCADE")
+            conn.exec_driver_sql("CREATE SCHEMA public")
         SQLModel.metadata.create_all(test_engine)  # also installs policies + audit triggers
         with test_engine.begin() as conn:
             for table in TENANT_TABLES:
