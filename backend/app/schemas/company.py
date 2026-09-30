@@ -123,6 +123,10 @@ class CustomerSignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
     full_name: str = Field(min_length=1)
+    # Optional branch code from a branch signup link (/apply/CODE?branch=X).
+    # Resolved server-side within the company the signup code names, never
+    # trusted as an id (CLAUDE.md rule #3).
+    branch_code: Optional[str] = Field(default=None, max_length=32)
 
 
 class SignupCodeInfoResponse(BaseModel):
@@ -131,5 +135,7 @@ class SignupCodeInfoResponse(BaseModel):
     # (no id, no signup_code echoed back, nothing that identifies anyone).
     company_name: str
     active: bool
+    # Present only when a valid ?branch= code was given.
+    branch_name: Optional[str] = None
     logo_url: Optional[str] = None
     brand_primary_color: Optional[str] = None

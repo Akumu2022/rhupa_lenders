@@ -56,6 +56,8 @@ class AuditAction(str, enum.Enum):
     USER_PASSWORD_RESET = "user.password_reset"
     STAFF_PASSWORD_RESET = "staff.password_reset"
     APPLICATION_SUBMIT_FOR_CUSTOMER = "application.submit_for_customer"
+    USER_BRANCH_CHANGE = "user.branch_change"
+    APPLICATION_REROUTE = "application.reroute"
 
 
 class AuditLog(TenantMixin, table=True):

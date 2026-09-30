@@ -10,6 +10,7 @@ from .routers import (
     admin,
     analytics,
     auth,
+    branch_assignment,
     branch_manager,
     committee,
     company_info,
@@ -61,6 +62,7 @@ app.include_router(finance.router)
 app.include_router(management.router)
 app.include_router(analytics.router)
 app.include_router(internal.router)
+app.include_router(branch_assignment.router)
 
 
 @app.get("/health")

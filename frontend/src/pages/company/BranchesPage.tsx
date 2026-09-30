@@ -10,6 +10,7 @@ import { Drawer } from "../../components/Drawer";
 import { useToast } from "../../components/toast";
 import { useApiMutation } from "../../hooks/useApiMutation";
 import { branchCreateSchema, type BranchCreateInput, type BranchResponse } from "../../schemas/admin";
+import { CopyLinkButton, NeedsBranchPanel, branchSignupUrl, useSignupCode } from "./BranchAssignmentPanel";
 
 function CreateBranchDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -87,14 +88,17 @@ export function CompanyBranchesPage() {
     queryKey: ["branches"],
     queryFn: () => apiRequest<BranchResponse[]>("/admin/branches"),
   });
+  const signupCode = useSignupCode().data?.signup_code;
 
   return (
     <AppShell>
       <PageHeader
         title="Branches"
-        subtitle="Your company's branch network"
+        subtitle="Your company's branch network. Share a branch's signup link so new customers land in that branch."
         actions={<Button onClick={() => setDrawerOpen(true)}>Create branch</Button>}
       />
+
+      {branchesQuery.data ? <NeedsBranchPanel branches={branchesQuery.data} /> : null}
 
       <Card>
         <DataTable
@@ -116,7 +120,12 @@ export function CompanyBranchesPage() {
           searchKeys={["name", "code"]}
           searchPlaceholder="Search branches…"
           emptyMessage="No branches yet — create your first one before assigning branch staff."
-          rowActions={(b) => <ActiveToggle branch={b} />}
+          rowActions={(b) => (
+            <div className="flex items-center gap-2">
+              {signupCode && b.is_active ? <CopyLinkButton url={branchSignupUrl(signupCode, b.code)} /> : null}
+              <ActiveToggle branch={b} />
+            </div>
+          )}
         />
       </Card>
 

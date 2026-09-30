@@ -117,6 +117,8 @@ export interface CompanyInfoResponse {
 export interface SignupCodeInfoResponse {
   company_name: string;
   active: boolean;
+  // Present only when the link carried a valid ?branch= code.
+  branch_name: string | null;
   logo_url: string | null;
   brand_primary_color: string | null;
 }
@@ -131,5 +133,7 @@ export const customerSignupSchema = z.object({
   email: z.string().email("Enter a valid email"),
   password: z.string().min(8, "At least 8 characters"),
   full_name: z.string().min(1, "Name is required"),
+  // From a branch signup link's ?branch= parameter; the server validates it.
+  branch_code: z.string().optional(),
 });
 export type CustomerSignupInput = z.infer<typeof customerSignupSchema>;

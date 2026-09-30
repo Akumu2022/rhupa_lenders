@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRequest, ApiError, formatApiErrorDetail } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { Banner, Button, Card, Field, LoadingRow, PageHeader, PasswordInput, TextInput } from "../../components/ui";
@@ -14,6 +14,10 @@ export function CustomerSignupPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { code } = useParams<{ code?: string }>();
+  // Branch signup links: /apply/CODE?branch=NRB-01. Carried through to the
+  // server, which checks it against that company's own branches.
+  const [searchParams] = useSearchParams();
+  const branchCode = searchParams.get("branch") ?? undefined;
   const [serverError, setServerError] = useState<string | null>(null);
 
   // CLAUDE.md §17: on the happy path (a /apply/:code link) the code is never
@@ -21,8 +25,12 @@ export function CustomerSignupPage() {
   // renders. The manual code field only exists as a fallback on the bare
   // /signup page for someone who landed here without a link.
   const codeInfoQuery = useQuery({
-    queryKey: ["signup", "resolve", code],
-    queryFn: () => apiRequest<SignupCodeInfoResponse>(`/signup/resolve/${code}`, { auth: false }),
+    queryKey: ["signup", "resolve", code, branchCode],
+    queryFn: () =>
+      apiRequest<SignupCodeInfoResponse>(
+        `/signup/resolve/${code}${branchCode ? `?branch=${encodeURIComponent(branchCode)}` : ""}`,
+        { auth: false },
+      ),
     enabled: Boolean(code),
     retry: false,
   });
@@ -39,7 +47,7 @@ export function CustomerSignupPage() {
     formState: { errors, isSubmitting },
   } = useForm<CustomerSignupInput>({
     resolver: zodResolver(customerSignupSchema),
-    defaultValues: { signup_code: code ?? "" },
+    defaultValues: { signup_code: code ?? "", branch_code: branchCode },
   });
 
   async function onSubmit(values: CustomerSignupInput) {
@@ -115,13 +123,18 @@ export function CustomerSignupPage() {
                 title="Create your account"
                 subtitle={
                   code && codeInfoQuery.data
-                    ? `Create your account with ${codeInfoQuery.data.company_name}`
+                    ? `Create your account with ${codeInfoQuery.data.company_name}${
+                        codeInfoQuery.data.branch_name ? ` · ${codeInfoQuery.data.branch_name} branch` : ""
+                      }`
                     : "Enter the signup code your lender gave you"
                 }
               />
               <form className="space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
                 {code ? (
-                  <input type="hidden" {...register("signup_code")} />
+                  <>
+                    <input type="hidden" {...register("signup_code")} />
+                    <input type="hidden" {...register("branch_code")} />
+                  </>
                 ) : (
                   <Field label="Company signup code" error={errors.signup_code?.message}>
                     <TextInput {...register("signup_code")} />
