@@ -53,6 +53,7 @@ export const NAV_BY_ROLE: Record<string, NavItem[]> = {
   branch_manager: [
     { label: "Dashboard", path: "/branch-manager", icon: "dashboard" },
     { label: "Applications", path: "/branch-manager/applications", icon: "documentText" },
+    { label: "Loans", path: "/branch-manager/loans", icon: "banknotes" },
     { label: "Customers", path: "/branch-manager/customers", icon: "user" },
     { label: "Staff", path: "/branch-manager/staff", icon: "users" },
     { label: "Portfolio", path: "/branch-manager/portfolio", icon: "chartBar" },

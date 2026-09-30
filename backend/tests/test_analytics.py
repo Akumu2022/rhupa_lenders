@@ -225,3 +225,19 @@ def test_officer_without_branch_sees_only_unassigned_applications(client, engine
 
     items = client.get("/analytics/applications", headers=_auth_headers(ctx["credit_token"])).json()
     assert [i["id"] for i in items] == [ctx["application"]["id"]]
+
+
+def test_branch_manager_sees_branch_dashboard_list_and_timeline(client, engine):
+    ctx = _setup_company_with_branch_review_application(client, engine, include_finance=True)
+    _approve_and_disburse(client, engine, ctx)
+    headers = _auth_headers(ctx["manager_token"])
+
+    body = client.get("/analytics/dashboard", headers=headers).json()
+    assert body["scope"] == "branch"
+    assert body["flows"]["disbursed_amount"] == "5000.00"
+    assert body["due_list"] == [] or body["due_list"][0]["customer_full_name"] == "Customer One"
+
+    items = client.get("/analytics/applications", headers=headers).json()
+    assert [i["stage"] for i in items] == ["active"]
+    resp = client.get(f"/analytics/applications/{ctx['application']['id']}/timeline", headers=headers)
+    assert resp.status_code == 200

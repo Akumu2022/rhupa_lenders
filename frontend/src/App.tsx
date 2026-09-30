@@ -129,6 +129,16 @@ function App() {
         <Route path="/branch-manager/applications" element={<BranchManagerApplicationsPage />} />
         <Route path="/branch-manager/staff" element={<BranchManagerStaffPage />} />
         <Route path="/branch-manager/portfolio" element={<BranchManagerPortfolioPage />} />
+        <Route
+          path="/branch-manager/loans"
+          element={
+            <CreditApplicationsPage
+              title="Loans"
+              subtitle="Every application and loan in your branch, from submission to repayment"
+              canEditGuarantors={false}
+            />
+          }
+        />
         <Route path="/branch-manager/collections" element={<BranchManagerCollectionsPage />} />
         <Route path="/branch-manager/customers" element={<CustomerListPage />} />
         <Route path="/branch-manager/customers/:customerId" element={<CustomerDetailPage />} />
