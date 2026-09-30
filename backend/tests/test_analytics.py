@@ -46,8 +46,12 @@ def test_officer_assisted_application_is_stamped_with_preparer(client, engine):
     assert resp.status_code == 201, resp.text
 
     mine = client.get("/analytics/applications?mine=true", headers=_auth_headers(ctx["credit_token"])).json()
-    assert [a["id"] for a in mine] == [resp.json()["id"]]
+    # Preparing an application for an unowned customer makes the officer
+    # that customer's owner, so the customer's earlier (rejected,
+    # self-service) application is now "mine" too. Newest first.
+    assert [a["id"] for a in mine] == [resp.json()["id"], ctx["application"]["id"]]
     assert mine[0]["prepared_by_name"] == "Credit One"
+    assert mine[1]["prepared_by_name"] is None
 
     # Without mine=true the officer sees their whole branch, rejected one included.
     branch = client.get("/analytics/applications", headers=_auth_headers(ctx["credit_token"])).json()
