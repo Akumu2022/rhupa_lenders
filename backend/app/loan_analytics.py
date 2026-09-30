@@ -183,7 +183,15 @@ def _scoped(query, scope: Scope):
     elif scope.branch_id is not None:
         query = query.where(LoanApplication.branch_id == scope.branch_id)
     if scope.prepared_by is not None:
-        query = query.where(LoanApplication.prepared_by == scope.prepared_by)
+        # "Mine" = customers assigned to this officer, plus anything they
+        # prepared for someone else's customer.
+        assigned_customers = select(User.id).where(User.assigned_officer_id == scope.prepared_by)
+        query = query.where(
+            or_(
+                LoanApplication.prepared_by == scope.prepared_by,
+                LoanApplication.customer_id.in_(assigned_customers),
+            )
+        )
     return query
 
 
@@ -192,8 +200,8 @@ def in_scope(application: LoanApplication, scope: Scope) -> bool:
         return False
     if scope.branch_id is not None and application.branch_id != scope.branch_id:
         return False
-    if scope.prepared_by is not None and application.prepared_by != scope.prepared_by:
-        return False
+    # in_scope is only ever called with mine=False (timeline access is
+    # branch-wide), so the "mine" narrowing has no per-row check here.
     return True
 
 

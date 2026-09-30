@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -22,6 +23,7 @@ from ..kyc_storage import save_kyc_document
 from ..models import AuditAction, BusinessAssessment, Company, KYCStatus, LoanApplication, Profile, Referee, User, UserRole
 from ..schemas.compliance import ComplianceProfileResponse
 from ..schemas.customers import (
+    AssignOfficerRequest,
     BusinessAssessmentRequest,
     BusinessAssessmentResponse,
     CustomerRegisterForm,
@@ -38,7 +40,7 @@ router = APIRouter(prefix="/customers", tags=["customers"])
 _VIEW_ROLES = (UserRole.credit_officer, UserRole.branch_manager, UserRole.system_administrator)
 
 
-def _customer_response(customer: User, profile: Profile) -> CustomerResponse:
+def _customer_response(customer: User, profile: Profile, officer_names: dict[int, str] | None = None) -> CustomerResponse:
     return CustomerResponse(
         id=customer.id,
         profile_id=profile.id,
@@ -48,7 +50,15 @@ def _customer_response(customer: User, profile: Profile) -> CustomerResponse:
         branch_id=customer.branch_id,
         kyc_status=profile.kyc_status,
         created_at=profile.created_at,
+        assigned_officer_id=customer.assigned_officer_id,
+        assigned_officer_name=(officer_names or {}).get(customer.assigned_officer_id) if customer.assigned_officer_id else None,
     )
+
+
+def _officer_names(session: Session, officer_ids: set[int]) -> dict[int, str]:
+    if not officer_ids:
+        return {}
+    return {u.id: u.full_name for u in session.exec(select(User).where(User.id.in_(officer_ids))).all()}
 
 
 def _get_existing_business_assessment(session: Session, profile_id: int) -> BusinessAssessment | None:
@@ -69,6 +79,7 @@ def _get_customer_profile(session: Session, customer_id: int) -> tuple[User, Pro
 
 @router.get("", response_model=list[CustomerResponse])
 def list_customers(
+    mine: bool = False,
     session: Session = Depends(get_session),
     staff: User = Depends(require_role(*_VIEW_ROLES)),
 ) -> list[CustomerResponse]:
@@ -81,8 +92,11 @@ def list_customers(
     query = select(User, Profile).join(Profile, Profile.user_id == User.id).where(User.role == UserRole.customer)
     if staff.role in (UserRole.credit_officer, UserRole.branch_manager):
         query = query.where(User.branch_id == staff.branch_id)
+    if mine and staff.role == UserRole.credit_officer:
+        query = query.where(User.assigned_officer_id == staff.id)
     rows = session.exec(query.order_by(User.id)).all()
-    return [_customer_response(customer, profile) for customer, profile in rows]
+    names = _officer_names(session, {c.assigned_officer_id for c, _ in rows if c.assigned_officer_id})
+    return [_customer_response(customer, profile, names) for customer, profile in rows]
 
 
 @router.post("", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
@@ -98,6 +112,7 @@ async def register_customer(
         full_name=form_data.full_name,
         company_id=officer.company_id,  # inherited — never from the request body
         branch_id=officer.branch_id,  # inherited — never from the request body
+        assigned_officer_id=officer.id,  # the registering officer owns the customer
         is_active=True,
     )
     session.add(customer)
@@ -168,7 +183,7 @@ async def register_customer(
     session.commit()
     session.refresh(customer)
     session.refresh(profile)
-    return _customer_response(customer, profile)
+    return _customer_response(customer, profile, {officer.id: officer.full_name})
 
 
 @router.get("/{customer_id}", response_model=ComplianceProfileResponse)
@@ -320,3 +335,62 @@ def add_referee(
     session.commit()
     session.refresh(referee)
     return referee
+
+
+@router.patch("/{customer_id}/officer", response_model=CustomerResponse)
+def assign_customer_officer(
+    customer_id: int,
+    body: AssignOfficerRequest,
+    session: Session = Depends(get_session),
+    staff: User = Depends(require_role(UserRole.branch_manager, UserRole.system_administrator)),
+) -> CustomerResponse:
+    """Hand a customer to a (different) credit officer. Branch managers only
+    within their own branch; the system administrator anywhere in the
+    company. The officer must be an active credit officer in the customer's
+    own branch, so a customer can never be owned across branches."""
+    customer, profile = _get_customer_profile(session, customer_id)
+    if staff.role == UserRole.branch_manager and customer.branch_id != staff.branch_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
+    officer = None
+    if body.officer_id is not None:
+        if customer.branch_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assign the customer to a branch first")
+        # session.get is tenant-scoped (CLAUDE.md §5).
+        officer = session.get(User, body.officer_id)
+        if (
+            officer is None
+            or officer.role != UserRole.credit_officer
+            or not officer.is_active
+            or officer.branch_id != customer.branch_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Choose an active credit officer in the customer's branch",
+            )
+
+    previous = customer.assigned_officer_id
+    if previous == body.officer_id:
+        return _customer_response(customer, profile, _officer_names(session, {previous} if previous else set()))
+
+    # CLAUDE.md §14: compare-and-set on the value we read.
+    unchanged = User.assigned_officer_id.is_(None) if previous is None else User.assigned_officer_id == previous
+    result = session.execute(
+        update(User).where(User.id == customer.id, unchanged).values(assigned_officer_id=body.officer_id)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The officer was changed by someone else, reload and retry")
+
+    write_audit(
+        session,
+        actor=staff,
+        action=AuditAction.CUSTOMER_OFFICER_ASSIGN.value,
+        entity_type="User",
+        entity_id=customer.id,
+        reason=f"officer {previous or 'none'} -> {body.officer_id or 'none'}",
+        company_id=staff.company_id,
+    )
+    session.commit()
+    session.refresh(customer)
+    names = {officer.id: officer.full_name} if officer else {}
+    return _customer_response(customer, profile, names)

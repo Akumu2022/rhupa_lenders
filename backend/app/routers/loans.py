@@ -152,6 +152,12 @@ def _create_application(
             is_anomaly=True,
         )
 
+    if actor.id != customer.id and customer.assigned_officer_id is None:
+        # The officer preparing the application takes ownership of a
+        # customer nobody owns yet.
+        customer.assigned_officer_id = actor.id
+        session.add(customer)
+
     if actor.id != customer.id:
         # A staff action changing state gets its own audit entry in the same
         # change (CLAUDE.md §16) — the pure self-service path above writes

@@ -37,6 +37,12 @@ class User(TenantMixin, table=True):
     # boundary — company_id (via TenantMixin) is the only hard wall (§5).
     branch_id: Optional[int] = Field(default=None, foreign_key="branch.id", index=True)
 
+    # Customers only: the credit officer who owns this customer's portfolio
+    # (collections, follow-up, "My Portfolio"). Set to the registering
+    # officer; reassigned by the branch manager or system administrator,
+    # always to an active credit officer in the customer's own branch.
+    assigned_officer_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
+
     # CLAUDE.md §6: checked in the same central gate as company-suspension status,
     # on every request — a deactivated staff account loses access immediately.
     is_active: bool = Field(default=True)

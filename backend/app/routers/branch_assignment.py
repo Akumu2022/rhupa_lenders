@@ -103,7 +103,13 @@ def assign_branch(
 
     # CLAUDE.md §14: compare-and-set on the value we read.
     unchanged = User.branch_id.is_(None) if old_branch_id is None else User.branch_id == old_branch_id
-    result = session.execute(update(User).where(User.id == user.id, unchanged).values(branch_id=body.branch_id))
+    new_values: dict = {"branch_id": body.branch_id}
+    if user.role == UserRole.customer and user.assigned_officer_id is not None:
+        # A customer is only ever owned by an officer in their own branch.
+        officer = session.get(User, user.assigned_officer_id)
+        if officer is None or officer.branch_id != body.branch_id:
+            new_values["assigned_officer_id"] = None
+    result = session.execute(update(User).where(User.id == user.id, unchanged).values(**new_values))
     if result.rowcount == 0:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Branch was changed by someone else, reload and retry")
 

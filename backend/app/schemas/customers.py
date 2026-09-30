@@ -72,6 +72,14 @@ class CustomerResponse(BaseModel):
     branch_id: Optional[int]
     kyc_status: KYCStatus
     created_at: datetime
+    assigned_officer_id: Optional[int] = None
+    assigned_officer_name: Optional[str] = None
+
+
+class AssignOfficerRequest(BaseModel):
+    # None unassigns. Otherwise must be an active credit officer in the
+    # customer's own branch (checked server-side).
+    officer_id: Optional[int]
 
 
 class RefereeInput(BaseModel):

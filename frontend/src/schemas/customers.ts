@@ -94,6 +94,9 @@ export interface CustomerResponse {
   branch_id: number | null;
   kyc_status: "pending" | "verified" | "rejected";
   created_at: string;
+  // The credit officer who owns this customer (null = unassigned).
+  assigned_officer_id: number | null;
+  assigned_officer_name: string | null;
 }
 
 export const refereeInputSchema = z.object({

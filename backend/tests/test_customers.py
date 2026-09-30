@@ -106,6 +106,9 @@ def test_credit_officer_can_register_customer(client, engine):
     assert body["kyc_status"] == "pending"
     assert body["branch_id"] == ctx["branch"]["id"]
     assert body["customer_number"] == f"CUST-{ctx['company']['id']:04d}-000001"
+    # The registering officer owns the customer.
+    assert body["assigned_officer_id"] is not None
+    assert body["assigned_officer_name"] is not None
 
 
 def test_customer_numbers_increment_sequentially_per_company(client, engine):
