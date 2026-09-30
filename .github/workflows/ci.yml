@@ -55,6 +55,7 @@ jobs:
       run:
         working-directory: backend
     steps:
+      - uses: actions/checkout@v4
       - name: Create a non-superuser app role
         env:
           PGPASSWORD: rhupa
@@ -62,7 +63,6 @@ jobs:
           psql -h localhost -U rhupa -d postgres -c "CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS"
           psql -h localhost -U rhupa -d postgres -c "ALTER DATABASE rhupa_test OWNER TO app"
           psql -h localhost -U rhupa -d rhupa_test -c "ALTER SCHEMA public OWNER TO app"
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
