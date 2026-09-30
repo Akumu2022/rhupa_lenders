@@ -199,8 +199,6 @@ def test_non_admin_cannot_access_oversight_endpoints(client, engine):
         "/admin/applications",
         "/admin/loans",
         "/admin/products",
-        "/admin/portfolio/summary",
-        "/admin/portfolio/trend",
     ):
         resp = client.get(endpoint, headers=_auth_headers(ctx["credit_token"]))
         assert resp.status_code == 403, endpoint
@@ -263,48 +261,34 @@ def test_admin_cannot_set_min_amount_above_max_amount(client, engine):
     assert resp.status_code == 400
 
 
-def test_portfolio_summary_reflects_disbursed_and_active_loan(client, engine):
+# The admin portfolio figures now come from the shared analytics endpoint
+# (/admin/portfolio/* was removed so every screen reads one source).
+
+
+def test_admin_dashboard_reflects_disbursed_and_active_loan(client, engine):
     ctx = _setup_disbursed_loan(client, engine, amount="5000.00")
-    resp = client.get("/admin/portfolio/summary", headers=_auth_headers(ctx["admin_token"]))
+    resp = client.get("/analytics/dashboard", headers=_auth_headers(ctx["admin_token"]))
     assert resp.status_code == 200
     body = resp.json()
-    assert body["total_disbursed"] == "5000.00"
-    assert body["active_loans"] == 1
-    assert body["active_borrowers"] == 1
-    # CLAUDE.md §29: outstanding_principal is PRINCIPAL only (not the
-    # interest-inclusive total_repayable/outstanding_balance) — nothing's
-    # been repaid yet, so it equals the full principal, 5000.00, not 5250.00.
-    assert Decimal(body["outstanding_principal"]) == Decimal("5000.00")
-    assert body["par_percentage"] == "0.00"
+    assert body["scope"] == "company"
+    assert body["portfolio"]["total_disbursed_all_time"] == "5000.00"
+    assert body["portfolio"]["active_loans"] == 1
+    assert body["portfolio"]["active_borrowers"] == 1
+    # CLAUDE.md §29: outstanding principal is PRINCIPAL only: nothing repaid
+    # yet, so the full 5000.00, not the interest-inclusive 5250.00.
+    assert Decimal(body["portfolio"]["outstanding_principal"]) == Decimal("5000.00")
+    assert body["portfolio"]["par_pct"] == "0.00"
+    # Today's disbursement shows in the time series.
+    assert sum(Decimal(p["disbursed"]) for p in body["series"]) == Decimal("5000.00")
 
 
-def test_portfolio_summary_is_tenant_isolated(client, engine):
+def test_admin_dashboard_is_tenant_isolated(client, engine):
     ctx_a = _setup_disbursed_loan(client, engine, company_name="Company A", amount="5000.00")
     _setup_disbursed_loan(client, engine, company_name="Company B", platform_token=ctx_a["platform_token"], amount="20000.00")
 
-    resp = client.get("/admin/portfolio/summary", headers=_auth_headers(ctx_a["admin_token"]))
-    assert resp.json()["total_disbursed"] == "5000.00"
-
-
-def test_portfolio_trend_reflects_todays_disbursement(client, engine):
-    ctx = _setup_disbursed_loan(client, engine, amount="5000.00")
-    resp = client.get("/admin/portfolio/trend", headers=_auth_headers(ctx["admin_token"]))
-    assert resp.status_code == 200, resp.text
-    points = resp.json()["points"]
-    assert len(points) == 14
-    today_point = points[-1]
-    assert today_point["disbursed_count"] == 1
-    assert today_point["disbursed_amount"] == "5000.00"
-    assert all(p["disbursed_count"] == 0 for p in points[:-1])
-
-
-def test_portfolio_trend_is_tenant_isolated(client, engine):
-    ctx_a = _setup_disbursed_loan(client, engine, company_name="Company A", amount="5000.00")
-    _setup_disbursed_loan(client, engine, company_name="Company B", platform_token=ctx_a["platform_token"], amount="20000.00")
-
-    resp = client.get("/admin/portfolio/trend", headers=_auth_headers(ctx_a["admin_token"]))
-    today_point = resp.json()["points"][-1]
-    assert today_point["disbursed_amount"] == "5000.00"
+    body = client.get("/analytics/dashboard", headers=_auth_headers(ctx_a["admin_token"])).json()
+    assert body["portfolio"]["total_disbursed_all_time"] == "5000.00"
+    assert body["flows"]["disbursed_amount"] == "5000.00"
 
 
 def test_user_summary_counts_staff_and_customers(client, engine):

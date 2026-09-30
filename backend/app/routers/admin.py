@@ -18,7 +18,6 @@ from ..db_helpers import get_or_404
 from ..deps import require_role
 from ..loan_calculation import generate_schedule
 from ..loan_delinquency import sync_loan_delinquency
-from ..portfolio import compute_portfolio_summary, compute_portfolio_trend
 from ..user_stats import compute_user_counts
 from ..time_utils import business_today
 from ..models import (
@@ -31,7 +30,6 @@ from ..models import (
     Loan,
     LoanApplication,
     LoanProduct,
-    LoanStatus,
     Profile,
     RepaymentSchedule,
     User,
@@ -51,9 +49,6 @@ from ..schemas.admin import (
     LoanCalculatorResponse,
     LoanProductCreateRequest,
     LoanProductUpdateRequest,
-    PortfolioSummaryResponse,
-    PortfolioTrendPoint,
-    PortfolioTrendResponse,
     UserSummaryResponse,
 )
 from ..schemas.compliance import ComplianceProfileResponse
@@ -463,49 +458,6 @@ def delete_product(
     )
     session.delete(product)
     session.commit()
-
-
-@router.get("/portfolio/summary", response_model=PortfolioSummaryResponse)
-def get_portfolio_summary(
-    session: Session = Depends(get_session),
-    admin: User = Depends(require_role(UserRole.system_administrator)),
-) -> PortfolioSummaryResponse:
-    """CLAUDE.md §9: aggregates only, no individual customer PII — a
-    read-only rollup a future executive role can be pointed at unchanged.
-    Computation lives in app/portfolio.py (shared with the branch-scoped and
-    management-level equivalents, CLAUDE.md §29/§30) — this endpoint's own
-    URL/response shape is unchanged.
-    """
-    summary = compute_portfolio_summary(session)
-    return PortfolioSummaryResponse(
-        total_disbursed=summary.total_disbursed,
-        total_collected=summary.total_collected,
-        active_borrowers=summary.active_borrowers,
-        active_loans=summary.active_loans,
-        outstanding_principal=summary.outstanding_principal,
-        par_percentage=summary.par_percentage,
-        overdue_loans=summary.overdue_loans,
-        defaulted_loans=summary.defaulted_loans,
-        loans_disbursed_this_month=summary.loans_disbursed_this_month,
-        as_of=summary.as_of,
-    )
-
-
-@router.get("/portfolio/trend", response_model=PortfolioTrendResponse)
-def get_portfolio_trend(
-    session: Session = Depends(get_session),
-    admin: User = Depends(require_role(UserRole.system_administrator)),
-) -> PortfolioTrendResponse:
-    """CLAUDE.md §20: sparkline data for the dashboard's hero stat — daily
-    disbursement activity over the trailing window, computed from existing
-    Loan rows (no new table, no stored history to maintain)."""
-    points = compute_portfolio_trend(session)
-    return PortfolioTrendResponse(
-        points=[
-            PortfolioTrendPoint(date=p.date, disbursed_count=p.disbursed_count, disbursed_amount=p.disbursed_amount)
-            for p in points
-        ]
-    )
 
 
 def _admin_previously_overrode_kyc_for_customer(session: Session, admin_id: int, customer_user_id: int) -> bool:

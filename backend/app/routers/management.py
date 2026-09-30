@@ -1,7 +1,7 @@
 """CLAUDE.md §9/§30 (M18): management — organization-wide, read-only
 aggregates only, no individual customer PII on these screens. Built on the
-same shared computation as /admin/portfolio/* (app/portfolio.py) so this
-role can be pointed at the identical, already-correct figures.
+same shared analytics as every other dashboard (app/loan_analytics.py, via
+app/portfolio.py); the dashboard itself uses GET /analytics/dashboard.
 """
 
 from datetime import date
@@ -13,46 +13,11 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..deps import require_role
 from ..models import ApplicationReviewStage, Branch, ReviewDecision, User, UserRole
-from ..portfolio import compute_portfolio_summary, compute_portfolio_trend, compute_report
-from ..schemas.admin import PortfolioSummaryResponse, PortfolioTrendPoint, PortfolioTrendResponse
+from ..portfolio import compute_portfolio_summary, compute_report
 from ..schemas.management import BranchRankingItemResponse, StaffPerformanceItemResponse
 from ..schemas.reports import ReportResponse
 
 router = APIRouter(prefix="/management", tags=["management"])
-
-
-@router.get("/portfolio", response_model=PortfolioSummaryResponse)
-def get_management_portfolio(
-    session: Session = Depends(get_session),
-    exec: User = Depends(require_role(UserRole.management)),
-) -> PortfolioSummaryResponse:
-    summary = compute_portfolio_summary(session)
-    return PortfolioSummaryResponse(
-        total_disbursed=summary.total_disbursed,
-        total_collected=summary.total_collected,
-        active_borrowers=summary.active_borrowers,
-        active_loans=summary.active_loans,
-        outstanding_principal=summary.outstanding_principal,
-        par_percentage=summary.par_percentage,
-        overdue_loans=summary.overdue_loans,
-        defaulted_loans=summary.defaulted_loans,
-        loans_disbursed_this_month=summary.loans_disbursed_this_month,
-        as_of=summary.as_of,
-    )
-
-
-@router.get("/portfolio/trend", response_model=PortfolioTrendResponse)
-def get_management_portfolio_trend(
-    session: Session = Depends(get_session),
-    exec: User = Depends(require_role(UserRole.management)),
-) -> PortfolioTrendResponse:
-    points = compute_portfolio_trend(session)
-    return PortfolioTrendResponse(
-        points=[
-            PortfolioTrendPoint(date=p.date, disbursed_count=p.disbursed_count, disbursed_amount=p.disbursed_amount)
-            for p in points
-        ]
-    )
 
 
 @router.get("/branch-ranking", response_model=list[BranchRankingItemResponse])

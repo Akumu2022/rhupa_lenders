@@ -197,15 +197,16 @@ def _setup_company_with_branch_review_application(
     }
 
 
-def test_credit_officer_queue_shows_in_review_application(client, engine):
+def test_credit_officer_sees_in_review_application(client, engine):
     ctx = _setup_company_with_branch_review_application(client, engine)
-    resp = client.get("/credit/queue", headers=_auth_headers(ctx["credit_token"]))
+    resp = client.get("/analytics/applications", headers=_auth_headers(ctx["credit_token"]))
     assert resp.status_code == 200
     body = resp.json()
     assert len(body) == 1
     assert body[0]["amount_requested"] == "5000.00"
     assert body[0]["loan_product_name"] == "Salary Advance"
     assert body[0]["status"] == "pending_branch_review"
+    assert body[0]["stage"] == "in_review"
 
 
 def test_branch_manager_queue_shows_application_with_effective_limit(client, engine):
@@ -464,10 +465,9 @@ def test_customer_and_credit_officer_cannot_decide_applications(client, engine):
         assert resp.status_code == 403
 
 
-def test_credit_officer_decisions_me_always_empty_after_m13(client, engine):
-    """CLAUDE.md §9/§26: "own recent decisions" now belongs to branch_manager/
-    committee, not credit_officer — this endpoint stays wired for any
-    historical pre-M13 rows but never grows from new activity."""
+def test_decided_application_leaves_the_in_review_stage(client, engine):
+    """Once the branch manager decides, the credit officer still sees the
+    application (it no longer disappears), now in its decided stage."""
     ctx = _setup_company_with_branch_review_application(client, engine)
     application_id = ctx["application"]["id"]
 
@@ -477,13 +477,8 @@ def test_credit_officer_decisions_me_always_empty_after_m13(client, engine):
         headers=_auth_headers(ctx["manager_token"]),
     )
 
-    resp = client.get("/credit/decisions/me", headers=_auth_headers(ctx["credit_token"]))
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-    # The credit officer's own in-review queue is empty too, now that it's decided.
-    queue_resp = client.get("/credit/queue", headers=_auth_headers(ctx["credit_token"]))
-    assert queue_resp.json() == []
+    items = client.get("/analytics/applications", headers=_auth_headers(ctx["credit_token"])).json()
+    assert [(i["id"], i["stage"]) for i in items] == [(application_id, "rejected")]
 
 
 def test_system_administrator_can_view_but_not_decide(client, engine):

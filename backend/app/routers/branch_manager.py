@@ -32,8 +32,6 @@ from ..models import (
     User,
     UserRole,
 )
-from ..portfolio import compute_portfolio_summary
-from ..schemas.admin import PortfolioSummaryResponse
 from ..schemas.branch_manager import ApplicationDecisionRequest, BranchQueueItemResponse
 from ..schemas.credit import CollectionsQueueItemResponse, CreditApplicationResponse
 from ..schemas.user import UserResponse
@@ -228,26 +226,6 @@ def get_branch_staff(
 ) -> list[User]:
     return list(
         session.exec(select(User).where(User.branch_id == manager.branch_id).order_by(User.full_name)).all()
-    )
-
-
-@router.get("/portfolio", response_model=PortfolioSummaryResponse)
-def get_branch_portfolio(
-    session: Session = Depends(get_session),
-    manager: User = Depends(require_role(UserRole.branch_manager)),
-) -> PortfolioSummaryResponse:
-    summary = compute_portfolio_summary(session, branch_id=manager.branch_id)
-    return PortfolioSummaryResponse(
-        total_disbursed=summary.total_disbursed,
-        total_collected=summary.total_collected,
-        active_borrowers=summary.active_borrowers,
-        active_loans=summary.active_loans,
-        outstanding_principal=summary.outstanding_principal,
-        par_percentage=summary.par_percentage,
-        overdue_loans=summary.overdue_loans,
-        defaulted_loans=summary.defaulted_loans,
-        loans_disbursed_this_month=summary.loans_disbursed_this_month,
-        as_of=summary.as_of,
     )
 
 

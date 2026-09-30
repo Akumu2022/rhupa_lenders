@@ -24,7 +24,6 @@ from ..loan_calculation import generate_schedule
 from ..loan_delinquency import sync_loan_delinquency
 from ..time_utils import business_today
 from ..models import (
-    ApplicationStatus,
     AuditAction,
     Loan,
     LoanApplication,
@@ -152,27 +151,6 @@ def _credit_application_base_query():
     )
 
 
-_IN_REVIEW_STATUSES = (ApplicationStatus.pending_branch_review, ApplicationStatus.pending_committee_review)
-
-
-@router.get("/queue", response_model=list[CreditApplicationResponse])
-def get_credit_queue(
-    session: Session = Depends(get_session),
-    officer: User = Depends(require_role(UserRole.credit_officer)),
-) -> list[CreditApplicationResponse]:
-    """CLAUDE.md §26 (M13): the officer prepares applications and hands them
-    to their branch manager to decide — this is now a read-only "what's
-    still in review" view of their own branch's applications, not an
-    actionable queue (that's app/routers/branch_manager.py)."""
-    rows = session.exec(
-        _credit_application_base_query()
-        .where(
-            LoanApplication.status.in_(_IN_REVIEW_STATUSES),
-            LoanApplication.branch_id == officer.branch_id,
-        )
-        .order_by(LoanApplication.created_at)
-    ).all()
-    return [_row_to_response(a, c, p, ls) for a, c, p, ls in rows]
 
 
 @router.get("/applications/{application_id}", response_model=CreditApplicationResponse)
@@ -187,25 +165,6 @@ def get_application_detail(
     sync_loan_delinquency(session)
     application, customer, product = _get_application_bundle(session, application_id)
     return _to_response(session, application, customer, product)
-
-
-@router.get("/decisions/me", response_model=list[CreditApplicationResponse])
-def get_my_recent_decisions(
-    session: Session = Depends(get_session),
-    officer: User = Depends(require_role(UserRole.credit_officer)),
-) -> list[CreditApplicationResponse]:
-    """CLAUDE.md §9: "own recent decisions" — an M5 requirement alongside the
-    approval queue itself."""
-    sync_loan_delinquency(session)
-    rows = session.exec(
-        _credit_application_base_query()
-        .where(
-            LoanApplication.reviewed_by == officer.id,
-            LoanApplication.status != ApplicationStatus.pending,
-        )
-        .order_by(LoanApplication.reviewed_at.desc())
-    ).all()
-    return [_row_to_response(a, c, p, ls) for a, c, p, ls in rows]
 
 
 @router.get("/loans/collections", response_model=list[CollectionsQueueItemResponse])

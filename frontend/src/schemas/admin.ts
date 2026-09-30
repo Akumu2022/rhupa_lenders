@@ -97,29 +97,6 @@ export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 export const productCreateSchema = z.object(productFieldsSchema);
 export type ProductCreateInput = z.infer<typeof productCreateSchema>;
 
-export interface PortfolioTrendPoint {
-  date: string;
-  disbursed_count: number;
-  disbursed_amount: string;
-}
-
-export interface PortfolioTrendResponse {
-  points: PortfolioTrendPoint[];
-}
-
-export interface PortfolioSummaryResponse {
-  total_disbursed: string;
-  total_collected: string;
-  active_borrowers: number;
-  active_loans: number;
-  outstanding_principal: string;
-  par_percentage: string;
-  overdue_loans: number;
-  defaulted_loans: number;
-  loans_disbursed_this_month: number;
-  as_of: string;
-}
-
 // Mirrors backend app/schemas/admin.py::UserSummaryResponse
 export interface UserSummaryResponse {
   staff_total: number;

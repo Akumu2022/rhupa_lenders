@@ -147,32 +147,6 @@ class BranchResponse(BaseModel):
     created_at: datetime
 
 
-class PortfolioTrendPoint(BaseModel):
-    date: date
-    disbursed_count: int
-    disbursed_amount: Decimal
-
-
-class PortfolioTrendResponse(BaseModel):
-    # CLAUDE.md §20: the sparkline behind the portfolio hero stat — daily
-    # disbursement activity over the trailing window.
-    points: list[PortfolioTrendPoint]
-
-
-class PortfolioSummaryResponse(BaseModel):
-    # CLAUDE.md §9: aggregates only, no individual PII on this screen.
-    total_disbursed: Decimal
-    total_collected: Decimal
-    active_borrowers: int
-    active_loans: int
-    outstanding_principal: Decimal
-    par_percentage: Decimal  # portfolio-at-risk: overdue outstanding / total outstanding
-    overdue_loans: int
-    defaulted_loans: int
-    loans_disbursed_this_month: int
-    as_of: date
-
-
 class UserSummaryResponse(BaseModel):
     """system_administrator's own-company staff/customer breakdown — the
     same shape/computation as the platform-tier CompanyUserCounts

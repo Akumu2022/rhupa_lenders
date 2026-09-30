@@ -194,14 +194,14 @@ def test_deactivate_staff_locks_them_out_immediately(client, engine):
     assert deactivate_resp.status_code == 200
     assert deactivate_resp.json()["is_active"] is False
 
-    blocked = client.get("/credit/queue", headers=_auth_headers(staff_token))
+    blocked = client.get("/analytics/applications", headers=_auth_headers(staff_token))
     assert blocked.status_code == 403
 
     reactivate_resp = client.post(f"/staff/{staff['id']}/reactivate", headers=_auth_headers(admin_token))
     assert reactivate_resp.status_code == 200
     assert reactivate_resp.json()["is_active"] is True
 
-    unblocked = client.get("/credit/queue", headers=_auth_headers(staff_token))
+    unblocked = client.get("/analytics/applications", headers=_auth_headers(staff_token))
     assert unblocked.status_code == 200
 
 

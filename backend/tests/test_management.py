@@ -1,5 +1,5 @@
 """CLAUDE.md §9/§30 (M18): management — organization-wide, read-only
-aggregates built on the same shared computation as /admin/portfolio/*.
+aggregates from the same shared analytics as every other dashboard.
 """
 
 from sqlmodel import Session, select
@@ -41,14 +41,17 @@ def _approve_and_disburse(client, engine, ctx):
     return loan_id
 
 
-def test_management_portfolio_matches_admin_portfolio(client, engine):
+def test_management_and_admin_see_the_same_company_figures(client, engine):
     ctx = _setup_company_with_branch_review_application(client, engine, include_finance=True)
     exec_token = _add_management_staff(client, ctx, ctx["company"]["name"].lower().replace(" ", ""))
     _approve_and_disburse(client, engine, ctx)
 
-    admin_summary = client.get("/admin/portfolio/summary", headers=_auth_headers(ctx["admin_token"])).json()
-    mgmt_summary = client.get("/management/portfolio", headers=_auth_headers(exec_token)).json()
-    assert mgmt_summary == admin_summary
+    admin_view = client.get("/analytics/dashboard", headers=_auth_headers(ctx["admin_token"])).json()
+    mgmt_view = client.get("/analytics/dashboard", headers=_auth_headers(exec_token)).json()
+    assert mgmt_view["portfolio"] == admin_view["portfolio"]
+    assert mgmt_view["flows"] == admin_view["flows"]
+    # Management is aggregates-only: no named follow-up list.
+    assert mgmt_view["due_list"] == []
 
 
 def test_branch_ranking_reflects_disbursed_totals(client, engine):
@@ -116,6 +119,6 @@ def test_management_reports_is_tenant_isolated(client, engine):
 
 def test_non_management_cannot_access_management_endpoints(client, engine):
     ctx = _setup_company_with_branch_review_application(client, engine)
-    for endpoint in ("/management/portfolio", "/management/branch-ranking", "/management/staff-performance"):
+    for endpoint in ("/management/branch-ranking", "/management/staff-performance"):
         resp = client.get(endpoint, headers=_auth_headers(ctx["manager_token"]))
         assert resp.status_code == 403, endpoint

@@ -156,13 +156,13 @@ def test_repayment_allowed_on_overdue_and_defaulted_loans(client, engine):
     assert resp.json()["status"] == "repaid"
 
 
-def test_admin_portfolio_summary_reports_overdue_and_defaulted_counts(client, engine):
+def test_admin_dashboard_reports_overdue_and_defaulted_counts(client, engine):
     ctx = _setup_approved_loan(client, engine)
     loan_id = ctx["loan"]["id"]
     client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
     _backdate_schedule(engine, ctx["company"]["id"], loan_id)
 
-    summary = client.get("/admin/portfolio/summary", headers=_auth_headers(ctx["admin_token"])).json()
+    summary = client.get("/analytics/dashboard", headers=_auth_headers(ctx["admin_token"])).json()["portfolio"]
     assert summary["overdue_loans"] == 1
     assert summary["defaulted_loans"] == 0
-    assert Decimal(summary["par_percentage"]) == Decimal("100.00")
+    assert Decimal(summary["par_pct"]) == Decimal("100.00")

@@ -12,12 +12,13 @@ import {
   LinkTile,
   PageHeader,
   SectionLabel,
-  Sparkline,
   StatCard,
   StatCardSkeleton,
 } from "../../components/ui";
 import type { UserResponse } from "../../schemas/staff";
-import type { AuditLogResponse, PortfolioSummaryResponse, PortfolioTrendResponse } from "../../schemas/admin";
+import type { AuditLogResponse } from "../../schemas/admin";
+import { DateRangeBar, FlowChart, useDashboard, useDateRange } from "../../components/analytics";
+import { formatKESShort } from "../../schemas/analytics";
 
 const QUICK_LINKS: { label: string; path: string; description: string; icon: IconName }[] = [
   { label: "Users", path: "/admin/users", description: "Add and manage compliance and credit officers", icon: "users" },
@@ -40,23 +41,18 @@ export function CompanyAdminDashboardPage() {
     queryKey: ["staff"],
     queryFn: () => apiRequest<UserResponse[]>("/staff"),
   });
-  const portfolioQuery = useQuery({
-    queryKey: ["admin", "portfolio", "summary"],
-    queryFn: () => apiRequest<PortfolioSummaryResponse>("/admin/portfolio/summary"),
-  });
-  const trendQuery = useQuery({
-    queryKey: ["admin", "portfolio", "trend"],
-    queryFn: () => apiRequest<PortfolioTrendResponse>("/admin/portfolio/trend"),
-  });
+  // Same shared figures as every other dashboard (GET /analytics/dashboard).
+  const range = useDateRange();
+  const portfolioQuery = useDashboard(range);
+  const d = portfolioQuery.data;
   const auditQuery = useQuery({
     queryKey: ["admin", "audit-log"],
     queryFn: () => apiRequest<AuditLogResponse[]>("/admin/audit-log"),
   });
 
   const activeCount = staffQuery.data?.filter((s) => s.is_active).length ?? null;
-  const par = portfolioQuery.data ? Number(portfolioQuery.data.par_percentage) : null;
-  const sparklineData = trendQuery.data?.points.map((p) => Number(p.disbursed_amount)) ?? [];
-  const disbursedTotal = sparklineData.reduce((a, b) => a + b, 0);
+  const par = d ? d.portfolio.par_pct : null;
+  const openLoans = d ? d.portfolio.active_loans + d.portfolio.overdue_loans + d.portfolio.defaulted_loans : null;
   const recentActivity = auditQuery.data?.slice(0, 5) ?? [];
   const heroLoading = portfolioQuery.isLoading;
 
@@ -69,7 +65,7 @@ export function CompanyAdminDashboardPage() {
 
   return (
     <AppShell>
-      <PageHeader title="Dashboard" subtitle="Your company at a glance" />
+      <PageHeader title="Dashboard" subtitle="Your company at a glance" actions={<DateRangeBar range={range} />} />
 
       {/* §20: one verdict, top-left, largest type — everything else supports it. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -84,12 +80,8 @@ export function CompanyAdminDashboardPage() {
             <HeroStat
               label="Portfolio at risk"
               value={par !== null ? `${par}%` : "—"}
-              tone={par !== null && par > 0 ? "danger" : "success"}
-              subtext={
-                portfolioQuery.data
-                  ? `${portfolioQuery.data.overdue_loans} overdue · ${portfolioQuery.data.defaulted_loans} defaulted`
-                  : undefined
-              }
+              tone={par !== null && Number(par) > 0 ? "danger" : "success"}
+              subtext={d ? `${d.portfolio.overdue_loans} overdue · ${d.portfolio.defaulted_loans} defaulted` : undefined}
             />
           )}
         </div>
@@ -104,11 +96,11 @@ export function CompanyAdminDashboardPage() {
             <>
               <StatCard
                 label="Outstanding principal"
-                value={`KES ${portfolioQuery.data?.outstanding_principal ?? "—"}`}
+                value={d ? formatKESShort(d.portfolio.outstanding_principal) : "—"}
                 tone="neutral"
                 icon="wallet"
               />
-              <StatCard label="Active loans" value={portfolioQuery.data?.active_loans ?? "—"} tone="neutral" icon="documentText" />
+              <StatCard label="Open loans" value={openLoans ?? "—"} tone="neutral" icon="documentText" />
               <StatCard label="Active staff" value={activeCount ?? "—"} tone="brand" icon="users" />
             </>
           )}
@@ -116,19 +108,8 @@ export function CompanyAdminDashboardPage() {
       </div>
 
       <Card className="mt-4">
-        <div className="flex items-center justify-between">
-          <SectionLabel>Disbursement activity (last 14 days)</SectionLabel>
-          {trendQuery.data ? (
-            <span className="text-xs text-slate-400 dark:text-slate-500">KES {disbursedTotal.toLocaleString()} total</span>
-          ) : null}
-        </div>
-        {trendQuery.isLoading ? (
-          <div className="h-12 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
-        ) : sparklineData.length > 1 ? (
-          <Sparkline data={sparklineData} tone="brand" height={48} showArea formatValue={(v) => `KES ${v.toLocaleString()}`} />
-        ) : (
-          <p className="text-sm text-slate-500 dark:text-slate-400">Not enough data yet.</p>
-        )}
+        <SectionLabel>Disbursed vs collected</SectionLabel>
+        {d ? <FlowChart data={d} /> : <div className="h-64 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />}
       </Card>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
