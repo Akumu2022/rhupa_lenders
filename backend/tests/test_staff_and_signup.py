@@ -392,6 +392,7 @@ def test_resolve_signup_code_returns_name_and_active_status(client, engine):
     assert resp.json() == {
         "company_name": "Company A",
         "active": True,
+        "branch_name": None,  # plain link, no ?branch=
         "logo_url": None,
         "brand_primary_color": None,
     }
@@ -412,6 +413,7 @@ def test_resolve_signup_code_reflects_suspended_company(client, engine):
     assert resp.json() == {
         "company_name": "Company A",
         "active": False,
+        "branch_name": None,  # plain link, no ?branch=
         "logo_url": None,
         "brand_primary_color": None,
     }
