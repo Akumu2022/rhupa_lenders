@@ -7,6 +7,12 @@ class Settings:
 
     database_url: str = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")
 
+    # Migrations need the table OWNER (DDL rights); the running app should
+    # connect as a restricted role that row-level security applies to (the
+    # owner, neondb_owner on Neon, bypasses it). When set, Alembic uses this
+    # URL and the app uses DATABASE_URL. Unset: both use DATABASE_URL.
+    migration_database_url: str = os.environ.get("MIGRATION_DATABASE_URL", "") or database_url
+
     # The business day every "today" decision uses — due dates, overdue
     # status, daily penalties, "due today" dashboards. Servers run in UTC;
     # Kenya is UTC+3, so using the server's date would put anything between

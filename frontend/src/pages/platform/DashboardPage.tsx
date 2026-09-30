@@ -10,7 +10,7 @@ interface DatabaseSecurity {
   role: string | null;
   role_bypasses_rls: boolean | null;
   enforced: boolean;
-  tables: { table: string; has_policy: boolean; rls_enabled: boolean; rls_forced: boolean }[];
+  tables: { table: string; has_policy: boolean; rls_enabled: boolean; rls_forced: boolean; owned_by_app_role: boolean }[];
 }
 
 /** Is Postgres itself enforcing company separation (row-level security)?
@@ -22,7 +22,9 @@ function DatabaseSecurityCard() {
   });
   const s = query.data;
   if (!s) return null;
-  const forced = s.tables.filter((t) => t.rls_forced).length;
+  // A rule binds the app's role once enabled if the role doesn't own the
+  // table; an owner is bound only when the rule is forced.
+  const binding = s.tables.filter((t) => t.has_policy && t.rls_enabled && (t.rls_forced || !t.owned_by_app_role)).length;
   const withPolicy = s.tables.filter((t) => t.has_policy && t.rls_enabled).length;
   return (
     <Card className="mt-4">
@@ -50,7 +52,9 @@ function DatabaseSecurityCard() {
           </div>
           <div>
             <dt className="text-slate-500 dark:text-slate-400">Tables where it is enforced</dt>
-            <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-50">{forced} / {s.tables.length}</dd>
+            <dd className="font-medium tabular-nums text-slate-900 dark:text-slate-50">
+              {s.role_bypasses_rls ? 0 : binding} / {s.tables.length}
+            </dd>
           </div>
         </dl>
       )}

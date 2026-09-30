@@ -24,7 +24,9 @@ if config.config_file_name is not None:
 
 # Drive the DB URL from app settings (DATABASE_URL env var), not a hardcoded
 # alembic.ini value, so dev/test/prod migrations always target the real DB.
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Owner connection for migrations (MIGRATION_DATABASE_URL), falling back to
+# DATABASE_URL. The running app uses DATABASE_URL (a restricted role).
+config.set_main_option("sqlalchemy.url", settings.migration_database_url)
 
 target_metadata = SQLModel.metadata
 
