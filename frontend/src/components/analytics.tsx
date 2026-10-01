@@ -103,15 +103,15 @@ function presetRange(preset: Exclude<Preset, "custom">): { start: string; end: s
   }
 }
 
-/** Default: month to date — long enough to show a trend, short enough to
- * match how collections targets are usually tracked. */
+/** Default: the last 30 days — a rolling window, so the charts never go
+ * blank on the 1st of the month the way "month to date" does. */
 export function useDateRange() {
   const [params, setParams] = useSearchParams();
-  const preset = (params.get("range") as Preset | null) ?? "mtd";
+  const preset = (params.get("range") as Preset | null) ?? "30d";
   const range =
     preset === "custom" && params.get("from") && params.get("to")
       ? { start: params.get("from")!, end: params.get("to")! }
-      : presetRange(preset === "custom" ? "mtd" : preset);
+      : presetRange(preset === "custom" ? "30d" : preset);
 
   function setPreset(next: Exclude<Preset, "custom">) {
     const p = new URLSearchParams(params);

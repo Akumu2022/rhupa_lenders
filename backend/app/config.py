@@ -7,11 +7,15 @@ class Settings:
 
     database_url: str = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")
 
-    # Migrations need the table OWNER (DDL rights); the running app should
-    # connect as a restricted role that row-level security applies to (the
-    # owner, neondb_owner on Neon, bypasses it). When set, Alembic uses this
-    # URL and the app uses DATABASE_URL. Unset: both use DATABASE_URL.
+    # Optional separate URL for Alembic. Normally unset: DATABASE_URL is the
+    # table OWNER's URL and serves both migrations and the app.
     migration_database_url: str = os.environ.get("MIGRATION_DATABASE_URL", "") or database_url
+
+    # Restricted role the running app switches to (SET LOCAL ROLE, every
+    # transaction) so Postgres row-level security applies to it — the owner,
+    # neondb_owner on Neon, bypasses RLS. Unset: the app runs as the
+    # connecting role, with app-level tenant isolation only (app/rls.py).
+    app_db_role: str = os.environ.get("APP_DB_ROLE", "")
 
     # The business day every "today" decision uses — due dates, overdue
     # status, daily penalties, "due today" dashboards. Servers run in UTC;

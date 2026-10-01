@@ -60,6 +60,7 @@ export interface BranchResponse {
   address: string | null;
   manager_id: number | null;
   is_active: boolean;
+  delegated_limit: string | null;
   created_at: string;
 }
 
@@ -69,6 +70,20 @@ export const branchCreateSchema = z.object({
   address: z.string().optional(),
 });
 export type BranchCreateInput = z.infer<typeof branchCreateSchema>;
+
+// Mirrors backend BranchUpdateRequest. manager_id comes off a <select> and
+// delegated_limit off a number input, both as strings ("" = none); converted
+// right before the API call. The code is not editable (signup links use it).
+export const branchEditSchema = z.object({
+  name: z.string().min(1, "Required"),
+  address: z.string().optional(),
+  manager_id: z.string().optional(),
+  delegated_limit: z
+    .string()
+    .optional()
+    .refine((v) => !v || (!Number.isNaN(Number(v)) && Number(v) >= 0), "Enter an amount of 0 or more"),
+});
+export type BranchEditInput = z.infer<typeof branchEditSchema>;
 
 // Shared by both the create and edit product drawers — CLAUDE.md §19:
 // products are config rows an admin authors, every field editable, not a

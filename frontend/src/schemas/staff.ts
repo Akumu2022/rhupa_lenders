@@ -44,3 +44,37 @@ export interface UserResponse {
   branch_id: number | null;
   is_active: boolean;
 }
+
+// Mirrors backend app/schemas/user.py::StaffDetailResponse
+export interface StaffHandledApplication {
+  id: number;
+  customer_id: number;
+  customer_full_name: string;
+  loan_product_name: string;
+  amount_requested: string;
+  status: string;
+  involvement: "prepared" | "decided" | "reviewed";
+  created_at: string;
+}
+
+export interface StaffActivityItem {
+  id: number;
+  action: string;
+  entity_type: string;
+  entity_id: number | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface StaffDetailResponse {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  branch_id: number | null;
+  branch_name: string | null;
+  is_active: boolean;
+  assigned_customers: number;
+  applications: StaffHandledApplication[];
+  recent_activity: StaffActivityItem[];
+}

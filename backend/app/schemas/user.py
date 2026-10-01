@@ -1,3 +1,5 @@
+from datetime import datetime
+from decimal import Decimal
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -54,3 +56,38 @@ class UserResponse(BaseModel):
     company_id: Optional[int]
     branch_id: Optional[int]
     is_active: bool
+
+
+class StaffHandledApplication(BaseModel):
+    id: int
+    customer_id: int
+    customer_full_name: str
+    loan_product_name: str
+    amount_requested: Decimal
+    status: str
+    # How this staff member touched it: prepared / decided (latest decision)
+    # / a review stage.
+    involvement: str
+    created_at: datetime
+
+
+class StaffActivityItem(BaseModel):
+    id: int
+    action: str
+    entity_type: str
+    entity_id: Optional[int]
+    reason: Optional[str]
+    created_at: datetime
+
+
+class StaffDetailResponse(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    branch_id: Optional[int]
+    branch_name: Optional[str]
+    is_active: bool
+    assigned_customers: int
+    applications: list[StaffHandledApplication]
+    recent_activity: list[StaffActivityItem]

@@ -80,3 +80,30 @@ class CollectionsQueueItemResponse(BaseModel):
     status: str
     earliest_overdue_due_date: date
     days_overdue: int
+
+
+class CollectionDueItemResponse(BaseModel):
+    """An unpaid instalment falling due soon (the Collections "Due" tab)."""
+    schedule_id: int
+    loan_id: int
+    customer_id: int
+    customer_full_name: str
+    loan_product_name: str
+    installment_number: int
+    due_date: date
+    amount_due: Decimal
+    amount_paid: Decimal
+    amount_remaining: Decimal
+    loan_status: str
+
+
+class CollectionReceivedItemResponse(BaseModel):
+    """A repayment received (the Collections "Received" tab)."""
+    id: int
+    loan_id: int
+    customer_id: int
+    customer_full_name: str
+    amount: Decimal
+    method: Optional[str]
+    receipt_number: Optional[str]
+    received_at: datetime

@@ -20,7 +20,21 @@ from ..customer_registration import compute_business_figures, next_customer_numb
 from ..db import get_session
 from ..deps import require_role
 from ..kyc_storage import save_kyc_document
-from ..models import AuditAction, BusinessAssessment, Company, KYCStatus, LoanApplication, Profile, Referee, User, UserRole
+from ..loan_delinquency import sync_loan_delinquency
+from ..models import (
+    AuditAction,
+    BusinessAssessment,
+    Company,
+    KYCStatus,
+    Loan,
+    LoanApplication,
+    LoanProduct,
+    Profile,
+    Referee,
+    User,
+    UserRole,
+)
+from ..schemas.admin import AdminLoanResponse
 from ..schemas.compliance import ComplianceProfileResponse
 from ..schemas.customers import (
     AssignOfficerRequest,
@@ -218,6 +232,42 @@ def list_customer_applications(
             .order_by(LoanApplication.created_at.desc())
         ).all()
     )
+
+
+@router.get("/{customer_id}/loans", response_model=list[AdminLoanResponse])
+def list_customer_loans(
+    customer_id: int,
+    session: Session = Depends(get_session),
+    staff: User = Depends(require_role(*_VIEW_ROLES)),
+) -> list[AdminLoanResponse]:
+    """The customer-profile page's Loans section: every loan with its status
+    and balance breakdown. Same branch scope as the Applications section."""
+    customer, _ = _get_customer_profile(session, customer_id)
+    if staff.role in (UserRole.credit_officer, UserRole.branch_manager) and customer.branch_id != staff.branch_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+    sync_loan_delinquency(session)
+    rows = session.exec(
+        select(Loan, LoanProduct)
+        .join(LoanProduct, LoanProduct.id == Loan.loan_product_id)
+        .where(Loan.customer_id == customer_id)
+        .order_by(Loan.created_at.desc())
+    ).all()
+    return [
+        AdminLoanResponse(
+            id=loan.id,
+            customer_full_name=customer.full_name,
+            customer_email=customer.email,
+            loan_product_name=product.name,
+            principal=loan.principal,
+            total_repayable=loan.total_repayable,
+            penalties_accrued=loan.penalties_accrued,
+            outstanding_balance=loan.outstanding_balance,
+            status=loan.status.value,
+            disbursed_at=loan.disbursed_at,
+            created_at=loan.created_at,
+        )
+        for loan, product in rows
+    ]
 
 
 @router.get("/{customer_id}/business-assessment", response_model=BusinessAssessmentResponse)

@@ -5,15 +5,31 @@ the admin's own company before being assigned.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import update
+from sqlalchemy import func, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from ..audit import write_audit
 from ..db import get_session
 from ..deps import require_role
-from ..models import AuditAction, Branch, User, UserRole
-from ..schemas.user import StaffCreateRequest, StaffPasswordResetRequest, UserResponse
+from ..models import (
+    ApplicationReviewStage,
+    AuditAction,
+    AuditLog,
+    Branch,
+    LoanApplication,
+    LoanProduct,
+    User,
+    UserRole,
+)
+from ..schemas.user import (
+    StaffActivityItem,
+    StaffCreateRequest,
+    StaffDetailResponse,
+    StaffHandledApplication,
+    StaffPasswordResetRequest,
+    UserResponse,
+)
 from ..security import hash_password
 
 router = APIRouter(prefix="/staff", tags=["staff"])
@@ -36,6 +52,87 @@ def list_staff(
     admin: User = Depends(require_role(UserRole.system_administrator)),
 ) -> list[User]:
     return list(session.exec(select(User).where(User.role.in_(_STAFF_ROLES)).order_by(User.id)).all())
+
+
+@router.get("/{staff_id}", response_model=StaffDetailResponse)
+def get_staff_detail(
+    staff_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> StaffDetailResponse:
+    """The Users page's staff drill-down: who they are, the applications
+    they prepared or decided, and their own recent audit trail. session.get
+    is tenant-scoped, so another company's staff_id is a plain 404 (§5)."""
+    staff = session.get(User, staff_id)
+    if staff is None or staff.role not in _STAFF_ROLES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Staff member not found")
+
+    branch = session.get(Branch, staff.branch_id) if staff.branch_id else None
+    assigned = session.exec(
+        select(func.count()).select_from(User).where(User.assigned_officer_id == staff_id)
+    ).one()
+
+    staged_ids = select(ApplicationReviewStage.application_id).where(ApplicationReviewStage.actor_id == staff_id)
+    rows = session.exec(
+        select(LoanApplication, User, LoanProduct)
+        .join(User, User.id == LoanApplication.customer_id)
+        .join(LoanProduct, LoanProduct.id == LoanApplication.loan_product_id)
+        .where(
+            or_(
+                LoanApplication.prepared_by == staff_id,
+                LoanApplication.reviewed_by == staff_id,
+                LoanApplication.id.in_(staged_ids),
+            )
+        )
+        .order_by(LoanApplication.created_at.desc())
+        .limit(100)
+    ).all()
+
+    def involvement(application: LoanApplication) -> str:
+        if application.prepared_by == staff_id:
+            return "prepared"
+        if application.reviewed_by == staff_id:
+            return "decided"
+        return "reviewed"
+
+    activity = session.exec(
+        select(AuditLog).where(AuditLog.actor_id == staff_id).order_by(AuditLog.created_at.desc()).limit(50)
+    ).all()
+
+    return StaffDetailResponse(
+        id=staff.id,
+        email=staff.email,
+        full_name=staff.full_name,
+        role=staff.role.value,
+        branch_id=staff.branch_id,
+        branch_name=branch.name if branch else None,
+        is_active=staff.is_active,
+        assigned_customers=assigned,
+        applications=[
+            StaffHandledApplication(
+                id=a.id,
+                customer_id=customer.id,
+                customer_full_name=customer.full_name,
+                loan_product_name=product.name,
+                amount_requested=a.amount_requested,
+                status=a.status.value,
+                involvement=involvement(a),
+                created_at=a.created_at,
+            )
+            for a, customer, product in rows
+        ],
+        recent_activity=[
+            StaffActivityItem(
+                id=e.id,
+                action=e.action,
+                entity_type=e.entity_type,
+                entity_id=e.entity_id,
+                reason=e.reason,
+                created_at=e.created_at,
+            )
+            for e in activity
+        ],
+    )
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

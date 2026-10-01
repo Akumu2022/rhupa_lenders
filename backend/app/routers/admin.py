@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -25,6 +25,7 @@ from ..models import (
     AuditAction,
     AuditLog,
     Branch,
+    ExpenseEntry,
     InterestModel,
     KYCStatus,
     Loan,
@@ -180,6 +181,46 @@ def update_branch(
     session.commit()
     session.refresh(branch)
     return branch
+
+
+@router.delete("/branches/{branch_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_branch(
+    branch_id: int,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> None:
+    """Hard delete, only for a branch nothing points at. A branch with staff,
+    customers, applications or expenses keeps its history: reassign them
+    first, or deactivate it instead (PATCH is_active=false)."""
+    branch = get_or_404(session, Branch, branch_id, detail="Branch not found")
+
+    in_use = {
+        "users": session.exec(select(func.count()).select_from(User).where(User.branch_id == branch_id)).one(),
+        "applications": session.exec(
+            select(func.count()).select_from(LoanApplication).where(LoanApplication.branch_id == branch_id)
+        ).one(),
+        "expenses": session.exec(
+            select(func.count()).select_from(ExpenseEntry).where(ExpenseEntry.branch_id == branch_id)
+        ).one(),
+    }
+    if any(in_use.values()):
+        used = ", ".join(f"{n} {label}" for label, n in in_use.items() if n)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Branch is in use ({used}). Reassign them first, or deactivate the branch instead.",
+        )
+
+    write_audit(
+        session,
+        actor=admin,
+        action=AuditAction.BRANCH_DELETE.value,
+        entity_type="Branch",
+        entity_id=branch_id,
+        reason=f"code={branch.code}, name={branch.name}",
+        company_id=admin.company_id,
+    )
+    session.delete(branch)
+    session.commit()
 
 
 @router.get("/kyc", response_model=list[ComplianceProfileResponse])

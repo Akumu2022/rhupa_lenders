@@ -11,7 +11,7 @@ import type { AdminLoanDetailResponse, AdminLoanResponse } from "../../schemas/a
 
 // Same mapping as pages/customer/shared.tsx::loanStatusTone — §18: one status
 // badge color vocabulary everywhere, staff and customer views alike.
-function statusTone(status: AdminLoanResponse["status"]): "success" | "info" | "warning" | "danger" {
+export function statusTone(status: AdminLoanResponse["status"]): "success" | "info" | "warning" | "danger" {
   if (status === "repaid") return "success";
   if (status === "active") return "info";
   if (status === "overdue") return "warning";
@@ -19,7 +19,7 @@ function statusTone(status: AdminLoanResponse["status"]): "success" | "info" | "
   return "warning";
 }
 
-function LoanDetailDrawer({ loanId, onClose }: { loanId: number | null; onClose: () => void }) {
+export function LoanDetailDrawer({ loanId, onClose }: { loanId: number | null; onClose: () => void }) {
   const detailQuery = useQuery({
     queryKey: ["admin", "loans", loanId],
     queryFn: () => apiRequest<AdminLoanDetailResponse>(`/admin/loans/${loanId}`),
@@ -136,7 +136,15 @@ export function CompanyLoansPage() {
           searchPlaceholder="Search by customer…"
           emptyMessage="No loans yet."
           onRowClick={(l) => setSelectedLoanId(l.id)}
-          rowActions={() => <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Details →</span>}
+          rowActions={(l) => (
+            <button
+              type="button"
+              onClick={() => setSelectedLoanId(l.id)}
+              className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+            >
+              Details →
+            </button>
+          )}
         />
       </Card>
 

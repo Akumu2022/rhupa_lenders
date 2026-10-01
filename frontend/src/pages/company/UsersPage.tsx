@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import { apiRequest, getErrorMessage } from "../../api/client";
 import { AppShell } from "../../components/AppShell";
 import { Badge, Banner, Button, Card, Field, PageHeader, PasswordInput, Select, StatCard, TextInput } from "../../components/ui";
@@ -200,7 +201,7 @@ function AddStaffDrawer({ open, onClose }: { open: boolean; onClose: () => void 
   );
 }
 
-function StatusToggle({ staff }: { staff: UserResponse }) {
+export function StatusToggle({ staff }: { staff: UserResponse }) {
   const toggle = useApiMutation({
     mutationFn: () =>
       apiRequest<UserResponse>(`/staff/${staff.id}/${staff.is_active ? "deactivate" : "reactivate"}`, {
@@ -226,7 +227,7 @@ function StatusToggle({ staff }: { staff: UserResponse }) {
  * staff only, never a customer (app/routers/staff.py enforces this
  * server-side too; this UI simply never offers the action anywhere near the
  * Customers tab). */
-function ResetStaffPasswordAction({ staff }: { staff: UserResponse }) {
+export function ResetStaffPasswordAction({ staff }: { staff: UserResponse }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
@@ -275,6 +276,7 @@ function ResetStaffPasswordAction({ staff }: { staff: UserResponse }) {
 }
 
 function StaffTable() {
+  const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const staffQuery = useQuery({
     queryKey: ["staff"],
@@ -310,6 +312,7 @@ function StaffTable() {
         searchKeys={["name", "email"]}
         searchPlaceholder="Search staff…"
         emptyMessage="No staff yet — add your first branch or company-wide team member."
+        onRowClick={(s) => navigate(`/admin/users/${s.id}`)}
         rowActions={(s) => (
           <div className="flex justify-end gap-2">
             <StatusToggle staff={s} />
@@ -323,6 +326,7 @@ function StaffTable() {
 }
 
 function CustomersTable() {
+  const navigate = useNavigate();
   const customersQuery = useQuery({
     queryKey: ["customers"],
     queryFn: () => apiRequest<CustomerResponse[]>("/customers"),
@@ -363,6 +367,7 @@ function CustomersTable() {
       // here, no create/reset actions (matches the explicit "staff only"
       // password-reset scope decision).
       emptyMessage="No customers registered yet."
+      onRowClick={(c) => navigate(`/admin/customers/${c.id}`)}
     />
   );
 }

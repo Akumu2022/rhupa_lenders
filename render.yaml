@@ -14,14 +14,16 @@ services:
         value: 3.12.7
       # Set to your Neon/Supabase connection string after creating it —
       # never committed here (CLAUDE.md: secrets stay out of the repo).
-      # The running app's connection: the RESTRICTED role rhupa_app, which
-      # row-level security applies to (scripts/create_app_role.sql).
+      # The table OWNER's connection (neondb_owner): used by migrations and
+      # by the app.
       - key: DATABASE_URL
         sync: false
-      # Migrations only: the table OWNER (neondb_owner), which has DDL rights
-      # but bypasses row-level security, so the app itself must not use it.
-      - key: MIGRATION_DATABASE_URL
-        sync: false
+      # The app switches to this restricted role every transaction so
+      # row-level security applies (app/rls.py; role created by
+      # scripts/create_app_role.sql). Remove it to roll back to app-level
+      # isolation only.
+      - key: APP_DB_ROLE
+        value: rhupa_app
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: ACCESS_TOKEN_EXPIRE_MINUTES

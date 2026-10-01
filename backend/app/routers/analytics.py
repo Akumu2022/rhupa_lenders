@@ -4,7 +4,7 @@ applications list, one movement timeline — scoped by role server-side
 company. Read-only: no state changes, so no audit writes.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -55,8 +55,8 @@ def get_dashboard(
     user: User = Depends(require_role(*_DASHBOARD_ROLES)),
 ) -> dict:
     today = business_today()
-    # Default range: month to date.
-    start = start or today.replace(day=1)
+    # Default range: the last 30 days (matches the frontend's default preset).
+    start = start or today - timedelta(days=29)
     end = end or today
     if start > end:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="start must be on or before end")

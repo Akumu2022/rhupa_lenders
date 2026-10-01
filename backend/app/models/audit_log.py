@@ -20,6 +20,7 @@ class AuditAction(str, enum.Enum):
 
     BRANCH_CREATE = "branch.create"
     BRANCH_UPDATE = "branch.update"
+    BRANCH_DELETE = "branch.delete"
     STAFF_CREATE = "staff.create"
     STAFF_DEACTIVATE = "staff.deactivate"
     STAFF_REACTIVATE = "staff.reactivate"

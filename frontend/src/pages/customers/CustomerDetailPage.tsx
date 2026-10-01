@@ -21,7 +21,9 @@ import {
   type RefereeResponse,
 } from "../../schemas/customers";
 import type { LoanApplicationResponse, LoanProductResponse } from "../../schemas/loan";
+import type { AdminLoanResponse } from "../../schemas/admin";
 import { applicationHasPendingDecision, applicationStatusLabel, applicationStatusTone } from "../customer/shared";
+import { LoanDetailDrawer, statusTone as loanStatusTone } from "../company/LoansPage";
 
 function DetailRow({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
@@ -459,6 +461,57 @@ function ApplicationsSection({ customerId, canManage }: { customerId: number; ca
   );
 }
 
+function LoansSection({ customerId, canOpenDetail }: { customerId: number; canOpenDetail: boolean }) {
+  const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
+  const loansQuery = useQuery({
+    queryKey: ["customers", customerId, "loans"],
+    queryFn: () => apiRequest<AdminLoanResponse[]>(`/customers/${customerId}/loans`),
+  });
+
+  return (
+    <Card>
+      <SectionLabel>Loans</SectionLabel>
+      <DataTable
+        columns={[
+          { key: "product", header: "Product", accessor: (l: AdminLoanResponse) => l.loan_product_name },
+          {
+            key: "principal",
+            header: "Principal",
+            accessor: (l) => Number(l.principal),
+            render: (l) => `KES ${l.principal}`,
+          },
+          {
+            key: "outstanding",
+            header: "Outstanding",
+            accessor: (l) => Number(l.outstanding_balance),
+            render: (l) => `KES ${l.outstanding_balance}`,
+          },
+          {
+            key: "status",
+            header: "Status",
+            accessor: (l) => l.status,
+            render: (l) => <Badge tone={loanStatusTone(l.status)}>{l.status.replace(/_/g, " ")}</Badge>,
+          },
+          {
+            key: "disbursed_at",
+            header: "Disbursed",
+            sortable: true,
+            accessor: (l) => l.disbursed_at ?? "",
+            render: (l) => (l.disbursed_at ? new Date(l.disbursed_at).toLocaleDateString() : "Not yet"),
+          },
+        ]}
+        data={loansQuery.data}
+        getRowId={(l) => l.id}
+        isLoading={loansQuery.isLoading}
+        isError={loansQuery.isError}
+        emptyMessage="No loans yet."
+        onRowClick={canOpenDetail ? (l) => setSelectedLoanId(l.id) : undefined}
+      />
+      {canOpenDetail ? <LoanDetailDrawer loanId={selectedLoanId} onClose={() => setSelectedLoanId(null)} /> : null}
+    </Card>
+  );
+}
+
 /**
  * Thin wrapper so navigating between two customers (only the `:customerId`
  * route param changes) fully remounts the detail view below — otherwise
@@ -539,6 +592,7 @@ function CustomerDetailView({ customerId }: { customerId: string | undefined }) 
             </dl>
           </Card>
 
+          <LoansSection customerId={id} canOpenDetail={auth?.role === "system_administrator"} />
           <ApplicationsSection customerId={id} canManage={canManage} />
           <RefereesSection customerId={id} canManage={canManage} />
           <BusinessAssessmentSection customerId={id} canManage={canManage} />

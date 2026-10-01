@@ -8,6 +8,7 @@ import { PlatformDashboardPage } from "./pages/platform/DashboardPage";
 import { PlatformCompaniesPage } from "./pages/platform/CompaniesPage";
 import { CompanyAdminDashboardPage } from "./pages/company/DashboardPage";
 import { CompanyAdminUsersPage } from "./pages/company/UsersPage";
+import { StaffDetailPage } from "./pages/company/StaffDetailPage";
 import { CompanyApplicationsPage } from "./pages/company/ApplicationsPage";
 import { CompanyKycPage } from "./pages/company/KycPage";
 import { CompanyLoansPage } from "./pages/company/LoansPage";
@@ -89,6 +90,7 @@ function App() {
       <Route element={<ProtectedRoute allowedRoles={["system_administrator"]} />}>
         <Route path="/admin" element={<CompanyAdminDashboardPage />} />
         <Route path="/admin/users" element={<CompanyAdminUsersPage />} />
+        <Route path="/admin/users/:userId" element={<StaffDetailPage />} />
         <Route path="/admin/branches" element={<CompanyBranchesPage />} />
         <Route path="/admin/applications" element={<CompanyApplicationsPage />} />
         <Route path="/admin/kyc" element={<CompanyKycPage />} />

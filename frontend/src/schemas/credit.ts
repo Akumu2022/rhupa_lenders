@@ -94,3 +94,30 @@ export interface CollectionsQueueItemResponse {
   earliest_overdue_due_date: string;
   days_overdue: number;
 }
+
+// Mirrors backend app/schemas/credit.py::CollectionDueItemResponse
+export interface CollectionDueItemResponse {
+  schedule_id: number;
+  loan_id: number;
+  customer_id: number;
+  customer_full_name: string;
+  loan_product_name: string;
+  installment_number: number;
+  due_date: string;
+  amount_due: string;
+  amount_paid: string;
+  amount_remaining: string;
+  loan_status: LoanStatus;
+}
+
+// Mirrors backend app/schemas/credit.py::CollectionReceivedItemResponse
+export interface CollectionReceivedItemResponse {
+  id: number;
+  loan_id: number;
+  customer_id: number;
+  customer_full_name: string;
+  amount: string;
+  method: string | null;
+  receipt_number: string | null;
+  received_at: string;
+}
