@@ -23,7 +23,7 @@ export interface LoanApplicationResponse {
   created_at: string;
 }
 
-export type LoanStatus = "approved" | "active" | "overdue" | "defaulted" | "repaid";
+export type LoanStatus = "approved" | "active" | "overdue" | "defaulted" | "written_off" | "repaid";
 
 export interface RepaymentInstallmentResponse {
   id: number;

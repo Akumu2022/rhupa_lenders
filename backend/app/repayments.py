@@ -30,7 +30,7 @@ from .models import (
 
 # CLAUDE.md §6: repayment stays open by default even once a loan has slipped
 # into delinquency — don't trap a borrower who's trying to catch up.
-REPAYABLE_LOAN_STATUSES = {LoanStatus.active, LoanStatus.overdue, LoanStatus.defaulted}
+REPAYABLE_LOAN_STATUSES = {LoanStatus.active, LoanStatus.overdue, LoanStatus.defaulted, LoanStatus.written_off}
 
 _ZERO = Decimal("0.00")
 

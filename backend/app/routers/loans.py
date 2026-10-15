@@ -87,6 +87,20 @@ def _create_application(
             status_code=status.HTTP_403_FORBIDDEN, detail="KYC verification required before applying"
         )
 
+    # Unresolved bad debt blocks new lending. It clears itself once the loan
+    # is repaid in full (status -> repaid); no manual flag to forget.
+    bad_debt = session.exec(
+        select(Loan.id).where(
+            Loan.customer_id == customer.id,
+            Loan.status.in_([LoanStatus.defaulted, LoanStatus.written_off]),
+        )
+    ).first()
+    if bad_debt is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not eligible for a new loan: an earlier loan is defaulted or written off and must be cleared first",
+        )
+
     existing_pending = session.exec(
         select(LoanApplication).where(
             LoanApplication.customer_id == customer.id,

@@ -41,7 +41,9 @@ from ..schemas.credit import (
     CollectionReceivedItemResponse,
     CollectionsQueueItemResponse,
     CreditApplicationResponse,
+    DefaultedLoanItemResponse,
     LoanDefaultRequest,
+    LoanWriteOffRequest,
     LoanResponse,
 )
 
@@ -236,6 +238,40 @@ def get_collections_queue(
     return responses
 
 
+@router.get("/loans/defaulted", response_model=list[DefaultedLoanItemResponse])
+def get_defaulted_loans(
+    session: Session = Depends(get_session),
+    officer: User = Depends(
+        require_role(UserRole.credit_officer, UserRole.branch_manager, UserRole.system_administrator)
+    ),
+) -> list[DefaultedLoanItemResponse]:
+    """Defaulted and written-off loans: the bad-debt book. Payments recorded
+    against these still count, and clearing one to `repaid` restores the
+    customer's eligibility."""
+    stmt = (
+        select(Loan, User, LoanProduct)
+        .join(User, User.id == Loan.customer_id)
+        .join(LoanProduct, LoanProduct.id == Loan.loan_product_id)
+        .where(Loan.status.in_([LoanStatus.defaulted, LoanStatus.written_off]))
+        .order_by(Loan.id)
+    )
+    if officer.role == UserRole.branch_manager:  # ordinary branch filter, not a tenant boundary (§5)
+        stmt = stmt.where(User.branch_id == officer.branch_id)
+    rows = session.exec(stmt).all()
+    return [
+        DefaultedLoanItemResponse(
+            id=loan.id,
+            customer_id=customer.id,
+            customer_full_name=customer.full_name,
+            loan_product_name=product.name,
+            principal=loan.principal,
+            outstanding_balance=loan.outstanding_balance,
+            status=loan.status.value,
+        )
+        for loan, customer, product in rows
+    ]
+
+
 @router.get("/collections/due", response_model=list[CollectionDueItemResponse])
 def get_collections_due(
     days: int = Query(default=7, ge=0, le=90),
@@ -347,6 +383,57 @@ def mark_loan_defaulted(
         entity_id=loan_id,
         reason=body.reason,
         company_id=officer.company_id,
+    )
+    session.commit()
+
+    session.refresh(loan)
+    return LoanResponse(
+        id=loan.id,
+        application_id=loan.application_id,
+        principal=loan.principal,
+        interest_rate=loan.interest_rate,
+        total_repayable=loan.total_repayable,
+        penalties_accrued=loan.penalties_accrued,
+        outstanding_balance=loan.outstanding_balance,
+        status=loan.status.value,
+        disbursed_at=loan.disbursed_at,
+    )
+
+
+@router.post("/loans/{loan_id}/write-off", response_model=LoanResponse)
+def write_off_loan(
+    loan_id: int,
+    body: LoanWriteOffRequest,
+    session: Session = Depends(get_session),
+    manager: User = Depends(require_role(UserRole.branch_manager, UserRole.system_administrator)),
+) -> LoanResponse:
+    """Classifies a defaulted loan as bad debt. The balance stays on the loan
+    (and can still be recovered by later payments, which clear it to
+    `repaid`), but it leaves the active portfolio/PAR and the customer stays
+    ineligible for new loans until it is cleared."""
+    loan = get_or_404(session, Loan, loan_id, detail="Loan not found")
+    if manager.role == UserRole.branch_manager:
+        borrower = session.get(User, loan.customer_id)
+        if borrower is None or borrower.branch_id != manager.branch_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Loan not found")
+
+    # CLAUDE.md §14: compare-and-set, never a blind UPDATE.
+    result = session.execute(
+        update(Loan)
+        .where(Loan.id == loan_id, Loan.status == LoanStatus.defaulted)
+        .values(status=LoanStatus.written_off)
+    )
+    if result.rowcount == 0:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only a defaulted loan can be written off")
+
+    write_audit(
+        session,
+        actor=manager,
+        action=AuditAction.LOAN_WRITE_OFF.value,
+        entity_type="Loan",
+        entity_id=loan_id,
+        reason=body.reason,
+        company_id=manager.company_id,
     )
     session.commit()
 

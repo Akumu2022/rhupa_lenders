@@ -166,3 +166,60 @@ def test_admin_dashboard_reports_overdue_and_defaulted_counts(client, engine):
     assert summary["overdue_loans"] == 1
     assert summary["defaulted_loans"] == 0
     assert Decimal(summary["par_pct"]) == Decimal("100.00")
+
+
+def test_write_off_blocks_new_loans_until_recovered(client, engine):
+    ctx = _setup_approved_loan(client, engine)
+    loan_id = ctx["loan"]["id"]
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
+    _backdate_schedule(engine, ctx["company"]["id"], loan_id)
+    client.get("/credit/loans/collections", headers=_auth_headers(ctx["credit_token"]))
+
+    # Not defaulted yet -> cannot write off; credit officers cannot at all.
+    resp = client.post(
+        f"/credit/loans/{loan_id}/write-off", json={"reason": "x"}, headers=_auth_headers(ctx["admin_token"])
+    )
+    assert resp.status_code == 409
+    client.post(
+        f"/credit/loans/{loan_id}/mark-defaulted",
+        json={"reason": "No response"},
+        headers=_auth_headers(ctx["credit_token"]),
+    )
+    resp = client.post(
+        f"/credit/loans/{loan_id}/write-off", json={"reason": "x"}, headers=_auth_headers(ctx["credit_token"])
+    )
+    assert resp.status_code == 403
+    resp = client.post(
+        f"/credit/loans/{loan_id}/write-off",
+        json={"reason": "Unrecoverable after 90+ days"},
+        headers=_auth_headers(ctx["admin_token"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "written_off"
+
+    # Bad debt blocks a new application.
+    products = client.get("/loan-products", headers=_auth_headers(ctx["customer_token"])).json()
+    resp = client.post(
+        "/applications",
+        json={"loan_product_id": products[0]["id"], "amount_requested": str(products[0]["min_amount"])},
+        headers=_auth_headers(ctx["customer_token"]),
+    )
+    assert resp.status_code == 403
+    assert "written off" in resp.json()["detail"]
+
+    # A later full recovery clears it to repaid (balance includes penalties).
+    owed = Decimal(resp_balance(client, ctx, loan_id))
+    resp = client.post(
+        f"/loans/{loan_id}/repay", json={"amount": str(owed)}, headers=_auth_headers(ctx["customer_token"])
+    )
+    assert resp.status_code in (200, 201), resp.text
+    with Session(engine) as session:
+        with tenant_context(ctx["company"]["id"]):
+            from app.models import Loan
+
+            assert session.get(Loan, loan_id).status.value == "repaid"
+
+
+def resp_balance(client, ctx, loan_id):
+    summary = client.get("/loans/me", headers=_auth_headers(ctx["customer_token"])).json()
+    return next(l for l in summary["loans"] if l["id"] == loan_id)["outstanding_balance"]

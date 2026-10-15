@@ -5,6 +5,7 @@ import { AppShell } from "../../components/AppShell";
 import { Badge, Banner, Button, Card, PageHeader, TextInput } from "../../components/ui";
 import { DataTable } from "../../components/DataTable";
 import { useToast } from "../../components/toast";
+import { useAuth } from "../../auth/AuthContext";
 import type {
   CollectionDueItemResponse,
   CollectionReceivedItemResponse,
@@ -12,18 +13,20 @@ import type {
   LoanResponse,
 } from "../../schemas/credit";
 
-type Tab = "overdue" | "due" | "received";
+type Tab = "overdue" | "due" | "received" | "bad_debt";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "overdue", label: "Overdue" },
   { value: "due", label: "Due in 7 days" },
   { value: "received", label: "Received (30 days)" },
+  { value: "bad_debt", label: "Defaulted / bad debt" },
 ];
 
 const SUBTITLES: Record<Tab, string> = {
   overdue: "Loans past their repayment due date — a human decides if and when to mark one defaulted",
   due: "Unpaid instalments falling due today through the next 7 days",
   received: "Repayments received in the last 30 days",
+  bad_debt: "Defaulted and written-off loans — any later payment still counts; clearing the balance restores eligibility for new loans",
 };
 
 function sameDay(iso: string) {
@@ -163,6 +166,105 @@ function MarkDefaultedAction({ loan }: { loan: CollectionsQueueItemResponse }) {
   );
 }
 
+interface DefaultedLoanItem {
+  id: number;
+  customer_id: number;
+  customer_full_name: string;
+  loan_product_name: string;
+  principal: string;
+  outstanding_balance: string;
+  status: "defaulted" | "written_off";
+}
+
+function WriteOffAction({ loan }: { loan: DefaultedLoanItem }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const writeOff = useMutation({
+    mutationFn: () =>
+      apiRequest<LoanResponse>(`/credit/loans/${loan.id}/write-off`, { method: "POST", body: { reason } }),
+    onSuccess: () => {
+      setReason("");
+      setOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["collections"] });
+      toast(`${loan.customer_full_name}'s loan written off as bad debt.`, "success");
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  if (loan.status === "written_off") return <Badge tone="danger">Written off</Badge>;
+  if (!open) {
+    return (
+      <Button variant="danger" className="px-2 py-1 text-xs" onClick={() => setOpen(true)}>
+        Write off
+      </Button>
+    );
+  }
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <TextInput
+        placeholder="Reason (required)"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        className="w-44 py-1 text-xs"
+      />
+      <Button
+        variant="danger"
+        className="px-2 py-1 text-xs"
+        disabled={!reason.trim() || writeOff.isPending}
+        onClick={() => writeOff.mutate()}
+      >
+        Confirm
+      </Button>
+      {error ? <span className="text-xs text-rose-600 dark:text-rose-400">{error}</span> : null}
+    </div>
+  );
+}
+
+function BadDebtTable() {
+  const { auth } = useAuth();
+  const canWriteOff = auth?.role === "branch_manager" || auth?.role === "system_administrator";
+  const query = useQuery({
+    queryKey: ["collections", "bad-debt"],
+    queryFn: () => apiRequest<DefaultedLoanItem[]>("/credit/loans/defaulted"),
+  });
+
+  return (
+    <>
+      {query.isError ? <Banner kind="error">Could not load defaulted loans</Banner> : null}
+      <DataTable
+        columns={[
+          { key: "customer", header: "Customer", sortable: true, accessor: (l: DefaultedLoanItem) => l.customer_full_name },
+          { key: "product", header: "Product", accessor: (l) => l.loan_product_name },
+          {
+            key: "outstanding",
+            header: "Still owed",
+            sortable: true,
+            accessor: (l) => Number(l.outstanding_balance),
+            render: (l) => `KES ${l.outstanding_balance}`,
+          },
+          {
+            key: "status",
+            header: "Status",
+            accessor: (l) => l.status,
+            render: (l) => <Badge tone="danger">{l.status === "written_off" ? "Written off" : "Defaulted"}</Badge>,
+          },
+        ]}
+        data={query.data}
+        getRowId={(l) => l.id}
+        isLoading={query.isLoading}
+        searchKeys={["customer"]}
+        searchPlaceholder="Search by customer…"
+        emptyMessage="No defaulted or written-off loans."
+        rowActions={canWriteOff ? (l) => <WriteOffAction loan={l} /> : undefined}
+      />
+    </>
+  );
+}
+
 function OverdueTable() {
   const collectionsQuery = useQuery({
     queryKey: ["collections"],
@@ -237,7 +339,7 @@ export function CollectionsPage() {
       </div>
 
       <Card>
-        {tab === "overdue" ? <OverdueTable /> : tab === "due" ? <DueTable /> : <ReceivedTable />}
+        {tab === "overdue" ? <OverdueTable /> : tab === "due" ? <DueTable /> : tab === "bad_debt" ? <BadDebtTable /> : <ReceivedTable />}
       </Card>
     </AppShell>
   );

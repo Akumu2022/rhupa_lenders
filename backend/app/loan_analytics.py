@@ -61,9 +61,9 @@ DISBURSED_LOAN_STATUSES = OUTSTANDING_LOAN_STATUSES | {LoanStatus.repaid}
 # Lifecycle stage of one application, combining its own status with its
 # loan's status — the single vocabulary the dashboards, lists, and drill-downs
 # all use. Order is the pipeline order.
-STAGES = ["in_review", "awaiting_disbursement", "active", "overdue", "defaulted", "repaid", "rejected"]
+STAGES = ["in_review", "awaiting_disbursement", "active", "overdue", "defaulted", "written_off", "repaid", "rejected"]
 # "Sorted" = got a yes and moved on (everything past approval).
-SORTED_STAGES = {"awaiting_disbursement", "active", "overdue", "defaulted", "repaid"}
+SORTED_STAGES = {"awaiting_disbursement", "active", "overdue", "defaulted", "written_off", "repaid"}
 
 # CLAUDE.md §29: the client's exact aging buckets.
 AGING_BUCKETS = ["current", "1-7", "8-30", "31-60", "61-90", "90+"]
@@ -103,6 +103,7 @@ def application_stage(application: LoanApplication, loan: Optional[Loan]) -> str
         LoanStatus.active: "active",
         LoanStatus.overdue: "overdue",
         LoanStatus.defaulted: "defaulted",
+        LoanStatus.written_off: "written_off",
         LoanStatus.repaid: "repaid",
     }[loan.status]
 

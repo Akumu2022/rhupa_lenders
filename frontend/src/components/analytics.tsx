@@ -605,7 +605,7 @@ function Figure({ label, value, emphasis }: { label: string; value: ReactNode; e
 // Staff who can record a payment the borrower made to them (backend:
 // POST /loans/{id}/payments).
 const PAYMENT_RECORDING_ROLES = new Set(["cashier_finance_officer", "credit_officer"]);
-const OPEN_LOAN_STATUSES = new Set(["active", "overdue", "defaulted"]);
+const OPEN_LOAN_STATUSES = new Set(["active", "overdue", "defaulted", "written_off"]);
 // Events whose `detail` is someone's written comment (shown in quotes);
 // other details (payment method/reference, date ranges) are plain facts.
 const COMMENT_KINDS = new Set(["review", "override", "defaulted"]);

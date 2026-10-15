@@ -65,6 +65,11 @@ class PendingDisbursementResponse(BaseModel):
     created_at: datetime
 
 
+class LoanWriteOffRequest(BaseModel):
+    # Writing off is a financial decision: always reasoned and audited.
+    reason: str = Field(min_length=1)
+
+
 class LoanDefaultRequest(BaseModel):
     # CLAUDE.md §19/§1: marking a loan defaulted is a human decision, always
     # reasoned and audited — never automatic.
@@ -80,6 +85,17 @@ class CollectionsQueueItemResponse(BaseModel):
     status: str
     earliest_overdue_due_date: date
     days_overdue: int
+
+
+class DefaultedLoanItemResponse(BaseModel):
+    """A defaulted or written-off loan (the Collections "Bad debt" tab)."""
+    id: int
+    customer_id: int
+    customer_full_name: str
+    loan_product_name: str
+    principal: Decimal
+    outstanding_balance: Decimal
+    status: str
 
 
 class CollectionDueItemResponse(BaseModel):

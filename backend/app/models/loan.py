@@ -13,6 +13,7 @@ class LoanStatus(str, enum.Enum):
     active = "active"
     overdue = "overdue"
     defaulted = "defaulted"
+    written_off = "written_off"  # bad debt: off the active book, still recoverable
     repaid = "repaid"
 
 

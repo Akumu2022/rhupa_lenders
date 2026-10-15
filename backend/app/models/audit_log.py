@@ -41,6 +41,7 @@ class AuditAction(str, enum.Enum):
     MFA_ENABLE = "mfa.enable"
     MFA_DISABLE = "mfa.disable"
     LOAN_MARK_DEFAULTED = "loan.mark_defaulted"
+    LOAN_WRITE_OFF = "loan.write_off"
     LOAN_REPAY = "loan.repay"
     LOAN_PAYMENT_RECORDED = "loan.payment_recorded"
     LOAN_PENALTY_APPLIED = "loan.penalty_applied"
