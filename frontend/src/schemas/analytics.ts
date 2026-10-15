@@ -10,6 +10,7 @@ export type Stage =
   | "active"
   | "overdue"
   | "defaulted"
+  | "written_off"
   | "repaid"
   | "rejected";
 
@@ -21,12 +22,13 @@ export const STAGE_META: Record<Stage, { label: string; tone: Tone }> = {
   active: { label: "Active", tone: "brand" },
   overdue: { label: "Overdue", tone: "danger" },
   defaulted: { label: "Defaulted", tone: "danger" },
+  written_off: { label: "Written off", tone: "danger" },
   repaid: { label: "Repaid", tone: "success" },
   rejected: { label: "Rejected", tone: "neutral" },
 };
 
 /** "Sorted" = approved and moved on (everything past a yes). */
-export const SORTED_STAGES: Stage[] = ["awaiting_disbursement", "active", "overdue", "defaulted", "repaid"];
+export const SORTED_STAGES: Stage[] = ["awaiting_disbursement", "active", "overdue", "defaulted", "written_off", "repaid"];
 
 export interface StageCount {
   stage: Stage;

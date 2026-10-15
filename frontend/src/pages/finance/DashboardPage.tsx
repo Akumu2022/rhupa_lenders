@@ -32,7 +32,7 @@ export function FinanceDashboardPage() {
   const statusBreakdown: StageCount[] = d
     ? (() => {
         const get = (stage: string) => d.pipeline.find((s) => s.stage === stage) ?? { stage, count: 0, amount: "0.00" };
-        const disbursed = ["active", "overdue", "defaulted", "repaid"].map(get);
+        const disbursed = ["active", "overdue", "defaulted", "written_off", "repaid"].map(get);
         return [
           get("in_review") as StageCount,
           get("awaiting_disbursement") as StageCount,

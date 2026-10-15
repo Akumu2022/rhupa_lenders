@@ -38,6 +38,8 @@ export function describeApplicationLifecycle(
       return { label: "Disbursed · Overdue", tone: "danger" };
     case "defaulted":
       return { label: "Disbursed · Defaulted", tone: "danger" };
+    case "written_off":
+      return { label: "Written off", tone: "danger" };
     case "repaid":
       return { label: "Disbursed · Repaid", tone: "success" };
     default:

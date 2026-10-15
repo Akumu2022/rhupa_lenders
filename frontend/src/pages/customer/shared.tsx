@@ -45,7 +45,7 @@ export function loanStatusTone(status: string): "success" | "info" | "warning" |
   if (status === "repaid") return "success";
   if (status === "active") return "info";
   if (status === "overdue") return "warning";
-  if (status === "defaulted") return "danger";
+  if (status === "defaulted" || status === "written_off") return "danger";
   return "warning"; // approved (awaiting disbursement)
 }
 

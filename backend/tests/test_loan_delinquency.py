@@ -197,6 +197,14 @@ def test_write_off_blocks_new_loans_until_recovered(client, engine):
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "written_off"
 
+    for path in ("/loans/me", "/credit/loans/defaulted", "/credit/loans/collections"):
+        tok = ctx["customer_token"] if path == "/loans/me" else ctx["credit_token"]
+        r = client.get(path, headers=_auth_headers(tok))
+        assert r.status_code == 200, (path, r.text)
+    for path in ("/analytics/dashboard", "/analytics/applications", "/admin/loans", f"/admin/loans/{loan_id}"):
+        r = client.get(path, headers=_auth_headers(ctx["admin_token"]))
+        assert r.status_code == 200, (path, r.text)
+
     # Bad debt blocks a new application.
     products = client.get("/loan-products", headers=_auth_headers(ctx["customer_token"])).json()
     resp = client.post(
