@@ -13,6 +13,7 @@ from .routers import (
     platform_security,
     branch_assignment,
     branch_manager,
+    collections_api,
     committee,
     company_info,
     compliance,
@@ -82,6 +83,7 @@ app.include_router(finance.router)
 app.include_router(management.router)
 app.include_router(analytics.router)
 app.include_router(internal.router)
+app.include_router(collections_api.router)
 app.include_router(branch_assignment.router)
 
 

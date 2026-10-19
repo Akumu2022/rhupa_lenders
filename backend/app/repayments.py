@@ -14,7 +14,7 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from .audit import write_audit
+from .audit import write_audit, write_system_audit
 from .time_utils import business_today
 from .models import (
     AuditAction,
@@ -134,12 +134,14 @@ def record_repayment(
     *,
     loan: Loan,
     amount: Decimal,
-    actor: User,
+    actor: Optional[User],
     method: PaymentMethod,
     reference: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> Transaction:
-    """Applies `amount` to `loan` and commits. Raises 400/409 HTTP errors for
+    """Applies `amount` to `loan` and commits. `actor=None` means a system
+    integration (e.g. the bank collections API) recorded it: no staff user
+    to attribute, audited under the system sentinel instead. Raises 400/409 HTTP errors for
     a closed loan, an overpayment, a concurrent balance change, or a payment
     reference that has already been recorded."""
     if loan.status not in REPAYABLE_LOAN_STATUSES:
@@ -209,7 +211,7 @@ def record_repayment(
                 .values(status=LoanStatus.active)
             )
 
-    is_staff = actor.id != loan.customer_id
+    is_staff = actor is None or actor.id != loan.customer_id
     transaction = Transaction(
         loan_id=loan.id,
         customer_id=loan.customer_id,
@@ -219,26 +221,38 @@ def record_repayment(
         method=method,
         reference=reference,
         receipt_number=next_receipt_number(session, loan.company_id),
-        recorded_by=actor.id if is_staff else None,
+        recorded_by=actor.id if (actor is not None and is_staff) else None,
         notes=notes,
         penalty_portion=split.penalty,
         interest_portion=split.interest,
         principal_portion=split.principal,
     )
     session.add(transaction)
-    write_audit(
-        session,
-        actor=actor,
-        action=(AuditAction.LOAN_PAYMENT_RECORDED if is_staff else AuditAction.LOAN_REPAY).value,
-        entity_type="Loan",
-        entity_id=loan.id,
-        reason=(
-            f"{method.value} {amount}" + (f" ref {reference}" if reference else "") + (f": {notes}" if notes else "")
-            if is_staff
-            else None
-        ),
-        company_id=loan.company_id,
+    audit_reason = (
+        f"{method.value} {amount}" + (f" ref {reference}" if reference else "") + (f": {notes}" if notes else "")
+        if is_staff
+        else None
     )
+    audit_action = (AuditAction.LOAN_PAYMENT_RECORDED if is_staff else AuditAction.LOAN_REPAY).value
+    if actor is None:
+        write_system_audit(
+            session,
+            action=audit_action,
+            entity_type="Loan",
+            entity_id=loan.id,
+            reason=audit_reason,
+            company_id=loan.company_id,
+        )
+    else:
+        write_audit(
+            session,
+            actor=actor,
+            action=audit_action,
+            entity_type="Loan",
+            entity_id=loan.id,
+            reason=audit_reason,
+            company_id=loan.company_id,
+        )
     try:
         session.commit()
     except IntegrityError:

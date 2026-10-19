@@ -27,11 +27,16 @@ class Settings:
     # Shared secret for scheduled jobs calling /internal/* (the daily
     # end-of-day run). Unset = those endpoints are disabled (404).
     cron_secret: str = os.environ.get("CRON_SECRET", "")
+    # Credentials the bank (I&M Business Connect) uses to call our Collections
+    # API (app/routers/collections_api.py). Both unset = the API is disabled (404).
+    im_client_id: str = os.environ.get("IM_CLIENT_ID", "")
+    im_client_secret: str = os.environ.get("IM_CLIENT_SECRET", "")
 
     # CLAUDE.md §2: access tokens are short-lived, no refresh-token flow in the MVP.
     jwt_secret_key: str = os.environ.get("JWT_SECRET_KEY", "dev-only-insecure-secret-change-me")
     jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "45"))
+    # Clamped to 60: a mis-set env var must never turn this into a multi-day session.
+    access_token_expire_minutes: int = min(int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "45")), 60)
 
     # CLAUDE.md §9, §16: KYC documents live outside the web root and are never
     # served from a static/guessable path — only via an authenticated,

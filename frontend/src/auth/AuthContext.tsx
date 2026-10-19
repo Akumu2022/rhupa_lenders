@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { clearAuth, loadAuth, saveAuth, type StoredAuth } from "./storage";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { clearAuth, loadAuth, saveAuth, tokenExpiryMs, type StoredAuth } from "./storage";
 
 interface AuthContextValue {
   auth: StoredAuth | null;
@@ -13,6 +13,34 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [auth, setAuth] = useState<StoredAuth | null>(() => loadAuth());
   const queryClient = useQueryClient();
+
+  // Log out the moment the token expires, even if the tab is left open and idle.
+  useEffect(() => {
+    if (!auth) return;
+    const expiry = tokenExpiryMs(auth.accessToken);
+    if (expiry === null) return;
+    const expire = () => {
+      queryClient.clear();
+      clearAuth();
+      setAuth(null);
+    };
+    const remaining = expiry - Date.now();
+    if (remaining <= 0) {
+      expire();
+      return;
+    }
+    // setTimeout caps at ~24.8 days; tokens are far shorter than that.
+    const timer = window.setTimeout(expire, remaining);
+    // Timers are throttled while a laptop sleeps — re-check when the tab wakes.
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && expiry <= Date.now()) expire();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [auth, queryClient]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
