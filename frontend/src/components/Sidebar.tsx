@@ -26,7 +26,7 @@ export function Sidebar({
   // sees Company-A identity throughout." super_admin (no `branding.name`,
   // §21: platform console stays neutral) and the moment before /companies/me
   // resolves both fall back to the platform's own identity.
-  const brandName = branding.name ?? "Rupha Royals";
+  const brandName = branding.name ?? "theHub Platform";
   const brandSubtitle = branding.tagline ?? "Lending Platform";
   const primary = safeHex(branding.primaryColor);
   const accent = safeHex(branding.accentColor);

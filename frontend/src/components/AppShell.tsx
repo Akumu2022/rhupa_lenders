@@ -11,7 +11,7 @@ import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { AuroraBackground } from "./ui";
 
-const PLATFORM_TITLE = "Rupha Royals";
+const PLATFORM_TITLE = "theHub Platform";
 
 function currentPageTitle(role: string | undefined, pathname: string): string {
   const items = role ? (NAV_BY_ROLE[role] ?? []) : [];

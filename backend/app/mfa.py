@@ -16,7 +16,7 @@ from sqlmodel import Session, select
 from .models import MfaRecoveryCode, User
 from .security import hash_password, verify_password
 
-_ISSUER_NAME = "Rupha Royals"
+_ISSUER_NAME = "theHub Platform"
 _RECOVERY_CODE_COUNT = 10
 
 

@@ -123,7 +123,7 @@ export function LoginPage() {
           <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-lg font-bold text-white shadow-lg shadow-indigo-600/30">
             R
           </span>
-          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Rupha Royals · Lending Platform</p>
+          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">theHub Platform</p>
         </div>
         {pending ? (
           <MfaStep mfaToken={pending.mfa_token} onBack={() => setPending(null)} />

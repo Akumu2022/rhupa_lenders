@@ -32,7 +32,7 @@ from .routers import (
     transactions,
 )
 
-app = FastAPI(title="Rupha Royals Lending Platform API")
+app = FastAPI(title="theHub Platform API")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

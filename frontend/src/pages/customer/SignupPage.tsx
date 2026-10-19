@@ -92,7 +92,7 @@ export function CustomerSignupPage() {
             </span>
           )}
           <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-            {codeInfoQuery.data?.company_name ?? "Rupha Royals · Lending Platform"}
+            {codeInfoQuery.data?.company_name ?? "theHub Platform"}
           </p>
         </div>
         <Card>
