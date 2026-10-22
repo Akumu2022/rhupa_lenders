@@ -25,6 +25,7 @@ from .routers import (
     loans,
     management,
     mfa,
+    nav_badges,
     platform,
     profile,
     signup,
@@ -81,6 +82,7 @@ app.include_router(branch_manager.router)
 app.include_router(committee.router)
 app.include_router(finance.router)
 app.include_router(management.router)
+app.include_router(nav_badges.router)
 app.include_router(analytics.router)
 app.include_router(internal.router)
 app.include_router(collections_api.router)

@@ -1,4 +1,7 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { apiRequest } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { safeHex, useBranding } from "../branding";
 import { Icon } from "./icons";
@@ -18,6 +21,25 @@ export function Sidebar({
   const { auth, logout } = useAuth();
   const navigate = useNavigate();
   const branding = useBranding();
+  const { pathname } = useLocation();
+
+  // Red alert counts per nav item (GET /nav-badges): what is waiting on this
+  // user. Polled, refreshed on tab focus and on every page change so a badge
+  // clears soon after the item is dealt with.
+  const badgesQuery = useQuery({
+    queryKey: ["nav-badges"],
+    queryFn: () => apiRequest<Record<string, number>>("/nav-badges"),
+    enabled: !!auth,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+  const { refetch: refetchBadges } = badgesQuery;
+  useEffect(() => {
+    if (auth) void refetchBadges();
+  }, [pathname, auth, refetchBadges]);
+  const badges = badgesQuery.data ?? {};
+
   if (!auth) return null;
 
   const items = NAV_BY_ROLE[auth.role] ?? [];
@@ -99,8 +121,21 @@ export function Sidebar({
               }
               title={collapsed ? item.label : undefined}
             >
-              <Icon name={item.icon} className="h-5 w-5 shrink-0" />
-              {!collapsed ? item.label : null}
+              <span className="relative flex shrink-0">
+                <Icon name={item.icon} className="h-5 w-5" />
+                {collapsed && badges[item.path] ? (
+                  <span className="absolute -right-1.5 -top-1.5 h-2.5 w-2.5 rounded-full bg-rose-600 ring-2 ring-white dark:ring-slate-900" />
+                ) : null}
+              </span>
+              {!collapsed ? <span className="flex-1">{item.label}</span> : null}
+              {!collapsed && badges[item.path] ? (
+                <span
+                  className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[11px] font-bold leading-none text-white"
+                  aria-label={`${badges[item.path]} need attention`}
+                >
+                  {badges[item.path] > 99 ? "99+" : badges[item.path]}
+                </span>
+              ) : null}
             </NavLink>
           ),
         )}
