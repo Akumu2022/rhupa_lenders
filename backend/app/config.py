@@ -32,6 +32,9 @@ class Settings:
     im_client_id: str = os.environ.get("IM_CLIENT_ID", "")
     im_client_secret: str = os.environ.get("IM_CLIENT_SECRET", "")
 
+    # Which PaymentGateway app/payment_gateway.py hands out. Only "simulated" exists.
+    payment_gateway: str = os.environ.get("PAYMENT_GATEWAY", "simulated")
+
     # CLAUDE.md §2: access tokens are short-lived, no refresh-token flow in the MVP.
     jwt_secret_key: str = os.environ.get("JWT_SECRET_KEY", "dev-only-insecure-secret-change-me")
     jwt_algorithm: str = "HS256"

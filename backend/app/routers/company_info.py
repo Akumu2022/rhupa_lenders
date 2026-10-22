@@ -12,7 +12,7 @@ from ..db import get_session
 from ..deps import get_current_user, require_role
 from ..models import AuditAction, Company, User, UserRole
 from ..schemas.company import CompanyProfileUpdateRequest
-from ..schemas.company_info import CompanyInfoResponse
+from ..schemas.company_info import CompanyInfoResponse, PaymentSettingsResponse, PaymentSettingsUpdateRequest
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -61,6 +61,56 @@ def update_my_company_profile(
         entity_type="Company",
         entity_id=company.id,
         reason=", ".join(updates.keys()) or None,
+        company_id=admin.company_id,
+    )
+    session.commit()
+    session.refresh(company)
+    return company
+
+
+@router.get("/me/payment-settings", response_model=PaymentSettingsResponse)
+def get_payment_settings(
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> Company:
+    company = session.get(Company, admin.company_id)
+    if company is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    return company
+
+
+@router.patch("/me/payment-settings", response_model=PaymentSettingsResponse)
+def update_payment_settings(
+    body: PaymentSettingsUpdateRequest,
+    session: Session = Depends(get_session),
+    admin: User = Depends(require_role(UserRole.system_administrator)),
+) -> Company:
+    """Auto-disbursement and STK push are off until a system_administrator turns
+    them on, and every change is audited. Auto-disbursement needs a maximum
+    amount: with none, it would have no ceiling, so enabling it without one is
+    refused."""
+    company = session.get(Company, admin.company_id)
+    if company is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+
+    updates = body.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(company, field, value)
+    if company.auto_disburse_enabled and company.auto_disburse_max_amount is None:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Set a maximum amount before turning on automatic disbursement",
+        )
+
+    session.add(company)
+    write_audit(
+        session,
+        actor=admin,
+        action=AuditAction.COMPANY_UPDATE_PAYMENT_SETTINGS.value,
+        entity_type="Company",
+        entity_id=company.id,
+        reason=", ".join(f"{k}={v}" for k, v in updates.items()) or None,
         company_id=admin.company_id,
     )
     session.commit()

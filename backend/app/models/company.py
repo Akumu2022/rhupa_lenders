@@ -1,5 +1,6 @@
 import enum
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -46,6 +47,16 @@ class Company(SQLModel, table=True):
     # Same compare-and-set counter pattern, behind repayment receipt numbers
     # (app/repayments.py::next_receipt_number).
     next_receipt_sequence: int = Field(default=1)
+
+    # Payment automation (CLAUDE.md §24 per-company settings). Everything is OFF by
+    # default and only a system_administrator can switch it on (audited).
+    # Auto-disburse releases an approved loan without waiting for finance, but only
+    # up to `auto_disburse_max_amount` — larger loans (and a missing limit) always
+    # wait for a cashier/finance officer. STK push prompts a borrower to pay an
+    # instalment that is due (app/stk_reminders.py).
+    auto_disburse_enabled: bool = Field(default=False)
+    auto_disburse_max_amount: Optional[Decimal] = Field(default=None, max_digits=12, decimal_places=2)
+    stk_push_enabled: bool = Field(default=False)
 
     # Added after several companies already existed (see the migration) —
     # pre-existing rows show the migration's timestamp, not their true

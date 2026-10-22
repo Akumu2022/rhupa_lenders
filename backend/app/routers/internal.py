@@ -11,6 +11,7 @@ from sqlmodel import Session
 from ..config import settings
 from ..db import get_session
 from ..end_of_day import run_end_of_day
+from ..stk_reminders import run_stk_reminders
 
 router = APIRouter(prefix="/internal", tags=["internal"], include_in_schema=False)
 
@@ -39,4 +40,22 @@ def end_of_day(session: Session = Depends(get_session)) -> dict:
         "newly_overdue": sum(c.newly_overdue for c in result.companies),
         "back_to_active": sum(c.back_to_active for c in result.companies),
         "penalty_total": str(sum((c.penalty_total for c in result.companies), 0)),
+    }
+
+
+@router.post("/stk-reminders", dependencies=[Depends(_require_cron_secret)])
+def stk_reminders(session: Session = Depends(get_session)) -> dict:
+    """Mid-morning job: prompt borrowers whose instalment is due. A call outside
+    business hours is a harmless no-op (the response says so)."""
+    result = run_stk_reminders(session)
+    if result.failed_company_ids:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"business_date": result.business_date, "failed_company_ids": result.failed_company_ids},
+        )
+    return {
+        "business_date": result.business_date,
+        "sent": result.sent,
+        "failed": result.failed,
+        "skipped_outside_hours": result.skipped_outside_hours,
     }

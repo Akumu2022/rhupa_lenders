@@ -16,6 +16,7 @@ from ..application_review import check_no_self_approval, require_guarantor_if_ne
 from ..audit import write_audit
 from ..db import get_session
 from ..deps import require_role
+from ..disbursement import maybe_auto_disburse
 from ..loan_delinquency import sync_loan_delinquency
 from ..time_utils import as_utc, business_today
 from ..models import (
@@ -194,7 +195,7 @@ def decide_branch_application(
         )
         if result.rowcount == 0:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Application is not awaiting branch review")
-        create_loan_for_application(session, application, product)
+        new_loan_id = create_loan_for_application(session, application, product)[0].id
         write_review_stage(
             session,
             application_id=application_id,
@@ -214,6 +215,7 @@ def decide_branch_application(
             company_id=manager.company_id, is_anomaly=seconds_to_decision < 60,
         )
         session.commit()
+        maybe_auto_disburse(session, new_loan_id)  # no-op unless the company enabled it
 
     application, customer, product = _get_branch_application_bundle(session, application_id, manager.branch_id)
     return _to_response(session, application, customer, product)

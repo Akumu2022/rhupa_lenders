@@ -1,0 +1,36 @@
+# Mid-morning payment prompts (STK push) for instalments that are due.
+# Harmless until a company turns "STK push" on in its payment settings, and the
+# gateway is simulated for now, so nothing is actually sent. The endpoint itself
+# refuses to act outside 08:00-18:59 Africa/Nairobi, so a late-running schedule
+# can never prompt customers at night.
+#
+# Needs the same repository secret as end-of-day: CRON_SECRET.
+name: STK reminders
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC = 10:00 Africa/Nairobi
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the secret is configured
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::Repository secret CRON_SECRET is not set"
+            exit 1
+          fi
+      - name: Call the STK reminders endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        # Retries cover the free-plan cold start. Safe to repeat: a prompt is
+        # sent at most once per instalment per day.
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --retry 6 --retry-delay 20 --retry-all-errors --max-time 120 \
+            -X POST -H "X-Cron-Secret: $CRON_SECRET" \
+            https://rhupa-backend.onrender.com/internal/stk-reminders

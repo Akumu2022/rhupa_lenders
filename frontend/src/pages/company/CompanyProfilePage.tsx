@@ -9,6 +9,7 @@ import { ColorField } from "../../components/ColorField";
 import { ImageFileField } from "../../components/FileDropzone";
 import { safeHex } from "../../branding";
 import { useToast } from "../../components/toast";
+import { PaymentAutomationCard } from "./PaymentAutomationCard";
 import {
   companyProfileUpdateSchema,
   omitBlankFields,
@@ -172,6 +173,8 @@ export function CompanyProfilePage() {
         </div>
       </Card>
       </div>
+
+      <PaymentAutomationCard />
     </AppShell>
   );
 }

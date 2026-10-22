@@ -1,6 +1,7 @@
+from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..models import CompanyStatus
 
@@ -25,3 +26,21 @@ class CompanyInfoResponse(BaseModel):
     support_email: Optional[str] = None
     support_phone: Optional[str] = None
     address: Optional[str] = None
+
+
+class PaymentSettingsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    auto_disburse_enabled: bool
+    auto_disburse_max_amount: Optional[Decimal] = None
+    stk_push_enabled: bool
+
+
+class PaymentSettingsUpdateRequest(BaseModel):
+    """PATCH semantics: only the fields sent are changed."""
+
+    auto_disburse_enabled: Optional[bool] = None
+    # Loans up to and including this amount are released automatically; anything
+    # larger still waits for a cashier/finance officer. Must be positive.
+    auto_disburse_max_amount: Optional[Decimal] = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    stk_push_enabled: Optional[bool] = None

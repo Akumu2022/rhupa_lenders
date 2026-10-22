@@ -16,6 +16,7 @@ from ..audit import write_audit
 from ..db import get_session
 from ..db_helpers import get_or_404
 from ..deps import require_role
+from ..disbursement import disburse_approved_loan
 from ..models import (
     AuditAction,
     ExpenseEntry,
@@ -72,33 +73,9 @@ def disburse_loan(
     not the allow-list (§6: "new applications / disbursements: stopped")."""
     loan = get_or_404(session, Loan, loan_id, detail="Loan not found")
 
-    now = datetime.now(timezone.utc)
-    # CLAUDE.md §14: compare-and-set, never a blind UPDATE.
-    result = session.execute(
-        update(Loan)
-        .where(Loan.id == loan_id, Loan.status == LoanStatus.approved)
-        .values(status=LoanStatus.active, disbursed_at=now)
-    )
-    if result.rowcount == 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Loan is not awaiting disbursement")
-
-    session.add(
-        Transaction(
-            loan_id=loan.id,
-            customer_id=loan.customer_id,
-            company_id=loan.company_id,
-            type=TransactionType.disbursement,
-            amount=loan.principal,
-        )
-    )
-    write_audit(
-        session,
-        actor=officer,
-        action=AuditAction.LOAN_DISBURSE.value,
-        entity_type="Loan",
-        entity_id=loan_id,
-        company_id=officer.company_id,
-    )
+    # Compare-and-set, ledger row and audit all live in app/disbursement.py so the
+    # manual button and automatic disbursement can never drift apart.
+    disburse_approved_loan(session, loan, actor=officer)
     session.commit()
 
     session.refresh(loan)
