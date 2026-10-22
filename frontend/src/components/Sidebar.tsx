@@ -7,6 +7,20 @@ import { safeHex, useBranding } from "../branding";
 import { Icon } from "./icons";
 import { NAV_BY_ROLE, ROLE_LABELS } from "./nav";
 
+// Pages that list incoming repayments. Opening one marks payments as seen, so
+// the red count there only covers payments recorded since (any channel, full or
+// partial). Kept per browser — a convenience, the server just counts.
+const PAYMENT_PATHS = ["/credit/collections", "/branch-manager/collections", "/finance/loans", "/admin/collections"];
+const PAYMENTS_SEEN_KEY = "rupha.paymentsSeen";
+
+function readPaymentsSeen(): string | null {
+  try {
+    return localStorage.getItem(PAYMENTS_SEEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function Sidebar({
   collapsed,
   onToggleCollapsed,
@@ -28,7 +42,12 @@ export function Sidebar({
   // clears soon after the item is dealt with.
   const badgesQuery = useQuery({
     queryKey: ["nav-badges"],
-    queryFn: () => apiRequest<Record<string, number>>("/nav-badges"),
+    queryFn: () => {
+      const seen = readPaymentsSeen();
+      return apiRequest<Record<string, number>>(
+        seen ? `/nav-badges?payments_since=${encodeURIComponent(seen)}` : "/nav-badges",
+      );
+    },
     enabled: !!auth,
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
@@ -36,7 +55,15 @@ export function Sidebar({
   });
   const { refetch: refetchBadges } = badgesQuery;
   useEffect(() => {
-    if (auth) void refetchBadges();
+    if (!auth) return;
+    if (PAYMENT_PATHS.some((path) => pathname.startsWith(path))) {
+      try {
+        localStorage.setItem(PAYMENTS_SEEN_KEY, new Date().toISOString());
+      } catch {
+        // storage unavailable — the badge just falls back to the 24h window
+      }
+    }
+    void refetchBadges();
   }, [pathname, auth, refetchBadges]);
   const badges = badgesQuery.data ?? {};
 

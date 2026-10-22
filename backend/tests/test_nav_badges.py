@@ -40,3 +40,28 @@ def test_branch_manager_sees_pending_application_then_finance_sees_disbursement(
 
 def test_nav_badges_requires_login(client):
     assert client.get("/nav-badges").status_code == 401
+
+
+def test_partial_repayment_raises_payment_badge_until_since_moves_past_it(client, engine):
+    from datetime import datetime, timedelta, timezone
+
+    ctx = _setup_company_with_branch_review_application(client, engine, include_finance=True)
+    client.post(
+        f"/branch-manager/applications/{ctx['application']['id']}/decide",
+        json={"decision": "approve", "comments": "Approved"},
+        headers=_auth_headers(ctx["manager_token"]),
+    )
+    with Session(engine) as session:
+        with tenant_context(ctx["company"]["id"]):
+            loan_id = session.exec(select(Loan)).first().id
+    client.post(f"/finance/loans/{loan_id}/disburse", headers=_auth_headers(ctx["finance_token"]))
+    assert "/finance/loans" not in _badges(client, ctx["finance_token"])
+
+    repay = client.post(f"/loans/{loan_id}/repay", json={"amount": "500.00"}, headers=_auth_headers(ctx["customer_token"]))
+    assert repay.status_code == 200, repay.text  # partial: the loan is far from cleared
+
+    assert _badges(client, ctx["finance_token"]) == {"/finance/loans": 1}
+
+    future = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    seen = client.get("/nav-badges", params={"payments_since": future}, headers=_auth_headers(ctx["finance_token"]))
+    assert seen.json() == {}

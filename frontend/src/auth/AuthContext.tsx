@@ -50,6 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // the previous user's customers, even for a moment.
       login: (next) => {
         queryClient.clear();
+        try {
+          localStorage.removeItem("rupha.paymentsSeen"); // a new session starts with a fresh "seen" mark
+        } catch {
+          // ignore
+        }
         saveAuth(next);
         setAuth(next);
       },
